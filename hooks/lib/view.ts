@@ -1,10 +1,10 @@
 // The sidebar drawing: state + data → element tree. Elements come from
 // $.ui.resolve(e) in register.ts and are passed in as `el`.
 
-import { diffPage, diffRows, sourcePage } from './diff.ts'
+import { diffPage, diffRows, fitCount, pageStarts, sourcePage } from './diff.ts'
 import type { Segment } from './diff.ts'
 import {
-  ART, CTX, PLAN, PREV, SECTIONS, isFolded, isShown, planRows, previewTarget, rowsOf, selectedStep, targetTitle,
+  ART, CTX, KEYS, PLAN, PREV, SECTIONS, isFolded, isShown, planRows, previewCosts, previewTarget, rowsOf, selectedStep, targetTitle,
 } from './model.ts'
 import type { Data, Preview, Repair, Row, UI } from './model.ts'
 import { isActive, isComplete, progress } from './plan.ts'
@@ -62,7 +62,8 @@ export function render(v: ViewInput) {
   const children: unknown[] = []
   for (let sec = 0; sec < SECTIONS.length; sec++) {
     children.push(header(v, sec))
-    if (!isShown(ui, sec)) continue
+    if (sec === KEYS) children.push(legend(v, isShown(ui, KEYS)))
+    if (!isShown(ui, sec) || sec === KEYS) continue
     if (sec === PREV) children.push(...previewBody(v))
     else {
       const rows = rowsOf(sec, ui, v.data, v.repair)
@@ -70,7 +71,6 @@ export function render(v: ViewInput) {
       rows.slice(off, off + v.alloc[sec]).forEach((r) => children.push(rowView(v, sec, r)))
     }
   }
-  children.push(legend(v))
   return el.Box({ flexDirection: 'column', children })
 }
 
@@ -138,12 +138,13 @@ function summary(v: ViewInput, sec: number): { text: string; color: string } {
     const f = (data.files.get(id) ?? []).length
     return { text: '⇡' + c + ' +' + f, color: roles.accent }
   }
+  if (sec === KEYS) return { text: isShown(ui, KEYS) ? '' : 'l: show', color: roles.faint }
   const total = previewTotal(v)
-  const h = Math.max(1, v.alloc[PREV] - 1)
   if (!total) return { text: '', color: roles.dim }
-  return isShown(ui, PREV)
-    ? { text: Math.min(Math.ceil(total / h), Math.floor(ui.previewOffset / h) + 1) + '/' + Math.max(1, Math.ceil(Math.max(1, total - 1) / h)), color: roles.dim }
-    : { text: total + ' rows', color: roles.dim }
+  if (!isShown(ui, PREV)) return { text: total + ' rows', color: roles.dim }
+  const starts = pageStarts(previewCosts(v.preview, v.width), Math.max(1, v.alloc[PREV]))
+  const at = starts.filter((s) => s <= ui.previewOffset).length
+  return { text: Math.max(1, at) + '/' + starts.length, color: roles.dim }
 }
 
 function rowView(v: ViewInput, sec: number, r: Row) {
@@ -228,8 +229,10 @@ function previewBody(v: ViewInput): unknown[] {
   if (!p) return [note(v, 'pv:none', [t(v, '  nothing to preview', { color: roles.faint, italic: true })])]
   if (p.error) return [note(v, 'pv:err', [t(v, '  ' + p.error, { color: roles.err })])]
   let segs: Segment[] = []
-  if (p.files) segs = diffPage(p.files, diffRows(p.files), ui.previewOffset, n)
-  else if (p.source !== null) segs = sourcePage(p.path, p.source, ui.previewOffset, n)
+  // n is screen rows; Code wraps, so take the lines that fit when wrapped.
+  const count = fitCount(previewCosts(p, v.width), ui.previewOffset, n)
+  if (p.files) segs = diffPage(p.files, diffRows(p.files), ui.previewOffset, count)
+  else if (p.source !== null) segs = sourcePage(p.path, p.source, ui.previewOffset, count)
   const out: unknown[] = []
   segs.forEach((s, i) => {
     if (s.kind === 'file') {
@@ -242,16 +245,18 @@ function previewBody(v: ViewInput): unknown[] {
         f.binary ? t(v, ' bin', { color: roles.dim }) : '',
       ] })] }))
     } else if (s.kind === 'diff') {
-      out.push(el.Code({ key: 'pv:d:' + i, source: s.source, format: 'diff', path: s.path, wrap: 'truncate-end' }))
+      out.push(el.Code({ key: 'pv:d:' + i, source: s.source, format: 'diff', path: s.path }))
     } else {
-      out.push(el.Code({ key: 'pv:s:' + i, source: s.source, path: s.path, startLine: s.startLine, wrap: 'truncate-end' }))
+      out.push(el.Code({ key: 'pv:s:' + i, source: s.source, path: s.path, startLine: s.startLine }))
     }
   })
   if (!out.length) out.push(note(v, 'pv:empty', [t(v, '  (empty)', { color: roles.faint, italic: true })]))
   return out
 }
 
-function legend(v: ViewInput) {
+// The key buttons are drawn even while Keys is folded: a mod's hotkeys are
+// its drawn Buttons, so folded means drawn into zero rows, not left out.
+function legend(v: ViewInput, open: boolean) {
   const { el, roles } = v
   const hot = (k: string, label: string) => el.Button({ key: 'key:' + k, label, hotkey: k, plain: true, dimColor: true, onPress: v.act.key(k) })
   const alt = (name: keyof typeof ACTIONS, label: string) =>
@@ -261,13 +266,12 @@ function legend(v: ViewInput) {
   const row2 = [hot('o', 'open'), hot('d', 'diff'), hot('z', 'zoom'), hot('q', 'close')]
   if (repairAsk) row2.unshift(hot('y', 'yes'), hot('n', 'no'))
   // Alt keys only reach us in terminals that send them (iTerm2: Option as Esc+).
-  const row3 = [hot('1', 'ctx'), hot('2', 'plan'), hot('3', 'art'), hot('4', 'prev'),
+  const row3 = [hot('1', 'ctx'), hot('2', 'plan'), hot('3', 'art'), hot('4', 'prev'), hot('5', 'keys'),
     alt('pagedown', '⌥j'), alt('pageup', '⌥k'), alt('prevsec', '⌥h'), alt('nextsec', '⌥l')]
-  return el.Box({
-    key: 'legend',
-    flexDirection: 'column',
-    children: [row1, row2, row3].map((r) => el.Box({ flexDirection: 'row', columnGap: 1, flexWrap: 'wrap', children: r })),
-  })
+  const rows = [row1, row2, row3].map((r) => el.Box({ flexDirection: 'row', columnGap: 1, flexWrap: 'wrap', children: r }))
+  return el.Box(open
+    ? { key: 'legend', flexDirection: 'column', children: rows }
+    : { key: 'legend', flexDirection: 'column', height: 0, overflow: 'hidden', children: rows })
 }
 
 // Order of focusable row buttons as drawn, for edge-scroll decisions.

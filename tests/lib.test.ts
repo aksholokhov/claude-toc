@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { diffPage, diffRows, parseDiff, sourcePage } from '../hooks/lib/diff.ts'
+import { diffPage, diffRows, fitCount, lastOffset, pageBack, pageStarts, parseDiff, sourcePage, wrapRows } from '../hooks/lib/diff.ts'
+import { previewCosts } from '../hooks/lib/model.ts'
 import { changedBetween, commitsByStep, fileState, parseLog, parseStatus, relativeTo, renamedTo, supportsTrailer, withTrailer } from '../hooks/lib/git.ts'
 import { appendEntry, editedPath, filesByStep, parseLedger } from '../hooks/lib/ledger.ts'
 import { parseMode, rolesFor } from '../hooks/lib/palette.ts'
@@ -99,4 +100,21 @@ test('supportsTrailer and changedBetween', () => {
   const before = new Map([['a', '?? 1'], ['b', ' M 5']])
   const after = new Map([['a', '?? 1'], ['b', ' M 9'], ['c', '?? 2']])
   expect(changedBetween(before, after)).toEqual(['b', 'c'])
+})
+
+test('wrapped paging: a page holds the lines that fit once Code wraps them', () => {
+  expect(wrapRows('', 10)).toBe(1)
+  expect(wrapRows('x'.repeat(10), 10)).toBe(1)
+  expect(wrapRows('x'.repeat(11), 10)).toBe(2)
+  expect(wrapRows('\tab', 4)).toBe(2) // a tab draws as 4 cells
+  const costs = [1, 3, 1, 1, 2, 1]
+  expect(fitCount(costs, 0, 4)).toBe(2)
+  expect(fitCount(costs, 1, 2)).toBe(1) // a line taller than the page still shows
+  expect(lastOffset(costs, 4)).toBe(3)
+  expect(pageBack(costs, 3, 4)).toBe(1)
+  expect(pageStarts(costs, 4)).toEqual([0, 2, 5])
+  // the gutter: line numbers padded by one, a space, the marker
+  const files = parseDiff('diff --git a/f b/f\n@@ -1,1 +1,1 @@\n-' + 'a'.repeat(30) + '\n+b\n')
+  expect(previewCosts({ key: 'k', files, source: null, path: 'f' }, 34)).toEqual([1, 1, 1])
+  expect(previewCosts({ key: 'k', files, source: null, path: 'f' }, 33)).toEqual([1, 2, 1])
 })

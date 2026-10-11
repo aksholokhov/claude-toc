@@ -9,8 +9,8 @@ files themselves, so it can't drift.
 ─┤ Context ├────────────────── 3/4      knowledge files, age, missing ones dim
 ─┤ Plan ├──────────── 19/52 ▰▰▱▱▱▱      milestones → steps, ✓ ◐ ✗ ○, ⇡commits +files
 ─┤ Artifacts · S2.1 ├─────── ⇡1 +0      the step's notes, commits (fold to files), files A/M/✓
-─┤ Preview · 7f7953d ├────── 1/36       the whole diff, paged
-j:↓ k:↑ h:◂ l:▸ g:⤒ e:⤓ z:zoom  o:open d:diff ⌥j⇟ ⌥k⇞ ⌥h ⌥l
+─┤ Preview · 7f7953d ├────── 1/36       the whole diff, wrapped and paged
+▸┤ Keys ├─────────────── l: show        the key legend, folded
 ```
 
 It's a Claude Code **mod** (a plugin with a TypeScript hooks module), so it
@@ -43,14 +43,16 @@ For development, load the working tree instead: `claude --plugin-dir ~/claude-to
   out of git via `.git/info/exclude`), and remembers the folder for this
   working directory. Claude can do the same with the `mcp__toc__activate` tool.
 - `Ctrl+X T` (or `/toc`) — focus the sidebar; again (from anywhere) to close it.
+  Clicking `≡ toc` above the prompt opens or closes it.
 - In the sidebar: `j`/`k` move and flow from one section into the next,
-  `f`/`b` page, `1`–`4` jump to a section, `h`/`l` fold (milestone, commit,
+  `f`/`b` page, `1`–`5` jump to a section (`5` unfolds the key legend), `h`/`l` fold (milestone, commit,
   or the whole section on its header), `z` zoom a section, `o`/Enter open,
   `d` diff, `q` close, `Esc` back to the prompt. Click a row's title to open
   it (tmux needs `set -g mouse on`). `⌥j/⌥k/⌥h/⌥l` page and switch sections
   where the terminal sends Alt.
-- Files open in one nvim per tmux window: a split beside Claude when the
-  window is ≥ 220 columns, below it otherwise; later files become tabs.
+- Files open in one nvim per tmux window, in the left half of Claude's tmux
+  pane; later files become tabs. (The sidebar docks on the right — Claude
+  Code's dock has no other side.)
 
 ## DEV_PLAN.md
 

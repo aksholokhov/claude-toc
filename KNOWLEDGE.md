@@ -106,3 +106,20 @@ Hard-won facts about the platform. Verified against the docs on 2026-10-10
 - Clicks only press a **Button's label**; a one-cell gutter button was too
   small to hit, and clicks on Text just select it ("copied"). Make the row's
   title the Button, as `/diff` does.
+
+## Second user test (2026-10-11)
+- **The fullscreen dock is right-only.** `PaneOpenArgs` has no side, and
+  the 2.1.296 binary has no dock-side setting; a left sidebar would have to
+  live outside Claude Code (a tmux pane).
+- **A Button drawn into zero rows still answers its hotkey/action**:
+  `Box({ height: 0, overflow: 'hidden' })` around it hides it and keeps the
+  key. That is how a folded section can keep the pane's hotkeys.
+- **Code wraps at the cell, not the word**, under a gutter of (line-number
+  digits + 1 pad) + space + marker — 5 cells for 2-digit diffs. Pages must
+  be budgeted in screen rows.
+- **A press carries no origin** (click vs chord vs hotkey). A click on a band
+  Button leaves the band holding the keys, so `$.ui.open({focus})` from it is
+  refused and an already-open pane shows no change — it looked like the
+  click did nothing. Give the chord its own (hidden) button.
+- Mouse clicks can be scripted in a detached tmux with
+  `send-keys -l $'\e[<0;X;YM'` then `…m` (SGR press/release).

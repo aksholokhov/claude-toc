@@ -2,15 +2,16 @@
 
 import type { Commit, FileState } from './git.ts'
 import type { DiffFile } from './diff.ts'
-import { diffRows, sourceRowCount } from './diff.ts'
+import { diffCosts, diffRows, fitCount, lastOffset, pageBack, sourceCosts, sourceRowCount } from './diff.ts'
 import { activeStep, allSteps, findStep, hasErrors, isActive, isComplete } from './plan.ts'
 import type { Plan, Step } from './plan.ts'
 
-export const SECTIONS = ['Context', 'Plan', 'Artifacts', 'Preview'] as const
+export const SECTIONS = ['Context', 'Plan', 'Artifacts', 'Preview', 'Keys'] as const
 export const CTX = 0
 export const PLAN = 1
 export const ART = 2
 export const PREV = 3
+export const KEYS = 4
 export const UNATTRIBUTED = ''
 
 export type CtxFile = { name: string; path: string; exists: boolean; mtimeMs: number }
@@ -71,7 +72,8 @@ export type Effect =
   | { kind: 'close' }
 
 export function initialUI(): UI {
-  return { sec: PLAN, zoom: null, collapsed: [], cursor: [null, null, null, null], offset: [0, 0, 0, 0], fold: {}, open: {}, step: null, previewOffset: 0 }
+  // Keys starts folded: its header row still carries the hotkeys (view.ts).
+  return { sec: PLAN, zoom: null, collapsed: [KEYS], cursor: [null, null, null, null, null], offset: [0, 0, 0, 0, 0], fold: {}, open: {}, step: null, previewOffset: 0 }
 }
 
 // ── rows ────────────────────────────────────────────────────────────────
@@ -183,6 +185,25 @@ export function previewRowCount(p: Preview | null): number {
   return 1
 }
 
+// Cells Code's gutter takes beside a line, measured live on 2.1.296: the
+// line number padded by one, a space, then the +/-/space marker for a diff.
+export function gutterWidth(p: Preview): number {
+  if (p.files) {
+    const top = Math.max(1, ...p.files.flatMap((f) => f.hunks.map((h) => Math.max(h.oldStart, h.newStart) + h.lines.length)))
+    return String(top).length + 3
+  }
+  return String(p.source === null ? 1 : sourceRowCount(p.source)).length + 2
+}
+
+// Screen rows each preview row takes at this pane width (Code wraps).
+export function previewCosts(p: Preview | null, width: number): number[] {
+  if (!p || p.error) return []
+  const room = Math.max(8, width - gutterWidth(p))
+  if (p.files) return diffCosts(p.files, room)
+  if (p.source !== null) return sourceCosts(p.source, room)
+  return []
+}
+
 // For a commit-file target the preview starts at that file's header.
 export function fileRowIndex(p: Preview | null, path: string): number {
   if (!p || !p.files) return 0
@@ -195,6 +216,7 @@ export function fileRowIndex(p: Preview | null, path: string): number {
 // ── layout ──────────────────────────────────────────────────────────────
 
 export const LEGEND_ROWS = 3
+const ALL = SECTIONS.map((_, i) => i)
 
 export function isShown(ui: UI, sec: number): boolean {
   return ui.zoom === null ? !ui.collapsed.includes(sec) : ui.zoom === sec
@@ -202,13 +224,15 @@ export function isShown(ui: UI, sec: number): boolean {
 
 // Body rows for each section's content (headers and legend excluded).
 export function allocate(ui: UI, counts: number[], bodyRows: number): number[] {
-  const avail = Math.max(4, bodyRows - SECTIONS.length - LEGEND_ROWS)
-  const al = [0, 0, 0, 0]
+  const al = ALL.map(() => 0)
+  const keys = !ui.collapsed.includes(KEYS) || ui.zoom === KEYS ? LEGEND_ROWS : 0
+  const avail = Math.max(4, bodyRows - SECTIONS.length - keys)
   if (ui.zoom !== null) {
-    al[ui.zoom] = avail
+    al[ui.zoom] = ui.zoom === KEYS ? LEGEND_ROWS : avail
     return al
   }
-  const shown = [0, 1, 2, 3].map((s) => isShown(ui, s))
+  al[KEYS] = keys
+  const shown = ALL.map((s) => isShown(ui, s))
   if (shown[CTX]) al[CTX] = Math.min(counts[CTX], 6)
   let rest = avail - al[CTX]
   if (shown[ART]) al[ART] = Math.min(counts[ART], Math.max(3, Math.round(rest * 0.3)))
@@ -260,11 +284,11 @@ export function keepVisible(offset: number, idx: number, alloc: number, n: numbe
   return Math.max(0, Math.min(o, Math.max(0, n - alloc)))
 }
 
-export type Ctx = { data: Data; repair: Repair; alloc: number[]; previewRows: number; preview: Preview | null }
+export type Ctx = { data: Data; repair: Repair; alloc: number[]; previewCosts: number[]; preview: Preview | null }
 
 export type Key =
   | 'j' | 'k' | 'h' | 'l' | 'g' | 'e' | 'o' | 'd' | 'z' | 'y' | 'n' | 'q' | 'f' | 'b'
-  | '1' | '2' | '3' | '4' | 'pagedown' | 'pageup' | 'prevsec' | 'nextsec'
+  | '1' | '2' | '3' | '4' | '5' | 'pagedown' | 'pageup' | 'prevsec' | 'nextsec'
 
 // Enter a section from the top (its header) or the bottom (its last row).
 function enter(ui: UI, sec: number, from: 'top' | 'bottom', c: Ctx): UI {
@@ -291,22 +315,33 @@ export function press(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } 
   if (key === 'q') return { ui, effect: { kind: 'close' } }
   if (key === 'f') key = 'pagedown'
   if (key === 'b') key = 'pageup'
-  if (key === '1' || key === '2' || key === '3' || key === '4') {
+  if (key === '1' || key === '2' || key === '3' || key === '4' || key === '5') {
     const n = Number(key) - 1
     return { ui: enter({ ...ui, collapsed: ui.collapsed.filter((x) => x !== n) }, n, 'top', c), effect: none }
   }
   if (key === 'y' || key === 'n') return { ui, effect: c.repair && c.repair.phase === 'ask' ? { kind: 'repair', yes: key === 'y' } : none }
-  if (key === 'prevsec' || key === 'nextsec') return { ui: enter(ui, (sec + (key === 'nextsec' ? 1 : 3)) % 4, 'top', c), effect: none }
+  if (key === 'prevsec' || key === 'nextsec') return { ui: enter(ui, (sec + (key === 'nextsec' ? 1 : SECTIONS.length - 1)) % SECTIONS.length, 'top', c), effect: none }
   if (key === 'z') return { ui: { ...ui, zoom: ui.zoom === sec ? null : sec, collapsed: ui.collapsed.filter((s) => s !== sec) }, effect: none }
 
+  if (sec === KEYS) {
+    if (key === 'k' || key === 'g') return { ui: enter(ui, PREV, 'bottom', c), effect: none }
+    if (key === 'h') return { ui: collapse(ui, KEYS, true), effect: none }
+    if (key === 'l') return { ui: collapse(ui, KEYS, false), effect: none }
+    if (key === 'o') return { ui: collapse(ui, KEYS, isShown(ui, KEYS)), effect: none }
+    return { ui, effect: none }
+  }
+
   if (sec === PREV) {
-    const max = Math.max(0, c.previewRows - alloc)
+    const costs = c.previewCosts
+    const off = ui.previewOffset
+    const max = lastOffset(costs, alloc)
     const at = (o: number) => ({ ui: { ...ui, previewOffset: Math.max(0, Math.min(o, max)) }, effect: none })
-    if (key === 'j') return at(ui.previewOffset + 1)
-    if (key === 'k' && ui.previewOffset === 0) return { ui: enter(ui, ART, 'bottom', c), effect: none }
-    if (key === 'k') return at(ui.previewOffset - 1)
-    if (key === 'pagedown') return at(ui.previewOffset + page)
-    if (key === 'pageup') return at(ui.previewOffset - page)
+    if (key === 'j' && (off >= max || !isShown(ui, PREV))) return { ui: enter(ui, KEYS, 'top', c), effect: none }
+    if (key === 'j') return at(off + 1)
+    if (key === 'k' && off === 0) return { ui: enter(ui, ART, 'bottom', c), effect: none }
+    if (key === 'k') return at(off - 1)
+    if (key === 'pagedown') return at(off + fitCount(costs, off, alloc))
+    if (key === 'pageup') return at(pageBack(costs, off, alloc))
     if (key === 'g') return at(0)
     if (key === 'e') return at(max)
     if (key === 'h') return { ui: collapse(ui, PREV, true), effect: none }

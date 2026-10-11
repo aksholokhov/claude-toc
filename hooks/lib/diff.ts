@@ -109,3 +109,58 @@ export function sourcePage(path: string, text: string, offset: number, count: nu
 export function sourceRowCount(text: string): number {
   return text.split('\n').length
 }
+
+// ── wrapped paging ──────────────────────────────────────────────────────
+// Code wraps long lines onto rows under its gutter, so a page holds as many
+// diff/source lines as fit in its screen rows, not a fixed count. Costs are
+// screen rows per PRow (or per source line); an overestimate only leaves a
+// page a row short, an underestimate would push rows out of the pane.
+
+// Rows `text` takes when Code wraps it at `room` cells: it breaks at the
+// cell, not the word (tabs drawn as 4).
+export function wrapRows(text: string, room: number): number {
+  return Math.max(1, Math.ceil(Array.from(text.replace(/\t/g, '    ')).length / Math.max(1, room)))
+}
+
+export function diffCosts(files: DiffFile[], room: number): number[] {
+  return diffRows(files).map((r) => (r.kind === 'file' ? 1 : wrapRows(files[r.file].hunks[r.hunk].lines[r.line].slice(1), room)))
+}
+
+export function sourceCosts(text: string, room: number): number[] {
+  return text.split('\n').map((l) => wrapRows(l, room))
+}
+
+// How many rows from `offset` fit in `budget` screen rows (at least one).
+export function fitCount(costs: number[], offset: number, budget: number): number {
+  let used = 0
+  let n = 0
+  for (let i = offset; i < costs.length; i++) {
+    if (n > 0 && used + costs[i] > budget) break
+    used += costs[i]
+    n++
+  }
+  return n
+}
+
+// The earliest offset whose page still reaches the end: the last page.
+export function lastOffset(costs: number[], budget: number): number {
+  let used = 0
+  let i = costs.length
+  while (i > 0 && used + costs[i - 1] <= budget) used += costs[--i]
+  return Math.min(i, Math.max(0, costs.length - 1))
+}
+
+// The offset of the page that ends just above `offset` (paging back).
+export function pageBack(costs: number[], offset: number, budget: number): number {
+  let used = 0
+  let i = offset
+  while (i > 0 && used + costs[i - 1] <= budget) used += costs[--i]
+  return i === offset ? Math.max(0, offset - 1) : i
+}
+
+// Page starts from the top, for an "n/m" counter.
+export function pageStarts(costs: number[], budget: number): number[] {
+  const out: number[] = []
+  for (let i = 0; i < costs.length; i += fitCount(costs, i, budget)) out.push(i)
+  return out.length ? out : [0]
+}

@@ -419,3 +419,37 @@ test('row titles are buttons, so a click opens them', async ($, on) => {
   const text = (await drawn(ui)).join('\n')
   expect(text).toMatch(/3━┥ Artifacts · S1\.1/)
 })
+
+test('Keys is folded to its header, yet its hotkeys answer; 5 unfolds it', async ($, on) => {
+  host(on, baseFiles())
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  let text = (await drawn(ui)).join('\n')
+  expect(text).toMatch(/5▸┤ Keys ├─+ l: show/)
+  expect(text).not.toMatch(/o: ?open/)
+  expect((await ui.find({ key: 'key:j' })).props.hotkey).toBe('j')
+  await ui.press({ key: 'key:4' })
+  expect((await drawn(ui)).join('\n')).toMatch(/4━┥ Preview/)
+  await ui.press({ key: 'key:5' })
+  text = (await drawn(ui)).join('\n')
+  expect(text).toMatch(/5━┥ Keys/)
+  expect(text).toMatch(/open/)
+  await ui.press({ key: 'key:h' })
+  expect((await drawn(ui)).join('\n')).toMatch(/5▸┤ Keys/)
+})
+
+test('the band: a click closes a shown pane; the chord has its own button', async ($, on) => {
+  host(on, baseFiles())
+  const closed: string[] = []
+  on('ui.close', ($, e) => {
+    closed.push(e.id)
+    return { value: undefined }
+  })
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => $.ui.resolve(e).Text({ children: ['theirs'] }))
+  await start($)
+  const band = await $.ui.mount({ plugin: 'toc', component: 'AbovePrompt', requestId: 'band', surface: 'terminal', viewport: { columns: 200, rows: 50 }, props: {} })
+  expect((await band.find({ key: 'toc-toggle' })).props.action).toBe('app:toggleReplTab')
+  expect((await band.find({ key: 'toc-click' })).props.action).toBeUndefined()
+  await band.press({ key: 'toc-click' })
+  expect(closed).toEqual(['toc'])
+})

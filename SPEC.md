@@ -193,7 +193,10 @@ The cursor is the focus ring: each row's title is a plain Button (as in
 can't be colored, only dimmed, so status color lives in the glyph before the
 title and the counters after it. Alt keys depend on the terminal (iTerm2 sends
 them only with Option as Esc+), so every Alt key has a plain-letter twin. Artifacts and Preview follow the
-cursor live. A footer row of plain buttons doubles as the key legend.
+cursor live. The key legend is a fifth section, **Keys**, folded to its
+header by default (D34); folded, its buttons are drawn into zero rows rather
+than left out, because a mod's hotkeys are its drawn Buttons. The Preview
+wraps long lines (Code's default) and pages by screen rows, not lines (D35).
 
 ### 7.2 Commands and tool (D16, D19, D21)
 - `/project [dir]` — activate for `dir`: scaffold, remember, open the pane
@@ -202,8 +205,10 @@ cursor live. A footer row of plain buttons doubles as the key legend.
 - `/toc` — immediate command: focus the pane if it's open but unfocused,
   close it if focused, open it otherwise. `/toc keys` installs the key
   bindings; `/toc refresh` forces a reload.
-- **Hotkey `Ctrl+X T`** for `/toc` (D23): a band button `≡ toc ⌃X T` with
-  `action: 'app:toggleReplTab'`; `ctrl+x t` bound to it in the **Global**
+- **Hotkey `Ctrl+X T`** for `/toc` (D23): a zero-height band button with
+  `action: 'app:toggleReplTab'` (a press doesn't say whether it was a click
+  or the chord, so the visible `≡ toc ⌃X T` is a separate button: a click
+  closes the pane if it's up, else opens it); `ctrl+x t` bound to it in the **Global**
   context (a `Chat` binding is dead while the pane has focus, so it couldn't
   close the pane). `Ctrl+X Tab` only reaches the band.
 - Tool `mcp__claude-toc__activate({dir})` — the same activation; Claude may
@@ -227,9 +232,11 @@ cursor live. A footer row of plain buttons doubles as the key legend.
 - Claude's tmux pane: `$TMUX_PANE` when present; otherwise (the daemon-hosted
   sessions of 2.1.29x don't inherit it) `tmux display-message -p '#{pane_id}'`
   on the default server — the pane its most recent client is on.
-- Split placement by width: window ≥ ~220 cols → split left of Claude's pane;
-  otherwise split below (~45% height), so Claude keeps width for the docked
-  sidebar.
+- Split placement: always the left half of Claude's pane, side by side
+  (`split-window -h -b -l 50%`), so the window reads editor | Claude |
+  sidebar. (Was: left if ≥ 220 cols, else below — revised after the first
+  user test.) The sidebar itself can't move left: the fullscreen dock is
+  right-only in 2.1.296 (D36).
 
 ### 7.6 Plan repair (D28, D29)
 - When `DEV_PLAN.md` fails the grammar (duplicate ID, two `[~]`, malformed
@@ -295,7 +302,7 @@ No file watcher in the mods API, so:
 | D17 | Injected context block teaches Claude the format |
 | D18 | Commits matched by trailer, no path filter |
 | D19 | Claude may activate freely |
-| D20 | Editor split: left if wide, else below |
+| D20 | Editor split: the left half of Claude's pane, always (revised) |
 | D21 | `/project [dir]`, `/toc`, `mcp__claude-toc__activate` |
 | D22 | nvim keyed per tmux window |
 | D23 | `/toc` hotkey `Ctrl+X T` via borrowed action (prototype; fallback `0`) |
@@ -307,5 +314,8 @@ No file watcher in the mods API, so:
 | D29 | Repair = Haiku subagent via `$.agent.spawn`, Edit tool, backup first; its hand-back is dropped |
 | D30 | Bash edits reach the ledger through a git-status snapshot around the command |
 | D31 | `/project` and the tool open the pane unfocused; `/toc` and `Ctrl+X T` focus it |
-| D32 | Every Alt key gets a plain twin: `f`/`b` page, `1`–`4` sections, `j`/`k` flow across sections; `q` closes |
+| D32 | Every Alt key gets a plain twin: `f`/`b` page, `1`–`5` sections, `j`/`k` flow across sections; `q` closes |
 | D33 | Row titles are Buttons (clickable); color moves to glyphs and counters |
+| D34 | Key legend = fifth section, Keys, folded by default; `5` jumps to it |
+| D35 | Preview wraps long lines; pages hold what fits once wrapped |
+| D36 | Sidebar stays on the right: the mods dock has no side option |

@@ -124,7 +124,7 @@ green. Decision refs (`D#`) point into SPEC.md §11.
 
 ## M7 Dogfood & ship
 - [~] S7.1 Dogfood on this repo
-  - waiting on the user's test batch
+  - test batch 2: wrap, Keys fold, band click, split
 - [x] S7.2 README + screenshots
 - [x] S7.3 Record KNOWLEDGE findings
 - [ ] S7.4 GitHub remote + tag v0.1

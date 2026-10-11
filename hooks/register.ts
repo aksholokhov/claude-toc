@@ -12,7 +12,7 @@ import type { Snapshot } from './lib/git.ts'
 import { appendEntry, editedPath, filesByStep, LEDGER_FILE, parseLedger, WRITE_TOOLS } from './lib/ledger.ts'
 import {
   ART, PLAN, PREV, UNATTRIBUTED, allocate, fileRowIndex, focusRow, initialUI, isShown, joinPath, planSignature,
-  press, previewRowCount, previewTarget, reconcile, rowsOf, targetKey,
+  press, previewCosts, previewRowCount, previewTarget, reconcile, rowsOf, targetKey,
 } from './lib/model.ts'
 import type { ArtFile, CtxFile, Data, Effect, Key, Preview, Repair, Target, UI } from './lib/model.ts'
 import { parseMode, rolesFor } from './lib/palette.ts'
@@ -83,8 +83,8 @@ function under(dir: string, p: string): boolean {
 }
 
 function counts(): number[] {
-  if (!data) return [0, 0, 0, 0]
-  return [0, 1, 2].map((s) => rowsOf(s, ui, data!, repair).length).concat([previewRowCount(preview)])
+  if (!data) return [0, 0, 0, 0, 0]
+  return [0, 1, 2].map((s) => rowsOf(s, ui, data!, repair).length).concat([previewRowCount(preview), 0])
 }
 
 function alloc(): number[] {
@@ -330,6 +330,13 @@ async function togglePane($) {
   await openPane($, true)
 }
 
+// The band click: open it when it's away, put it away when it's up.
+async function clickPane($) {
+  const mine = (await $.ui.panes()).find((p) => p.id === PANE)
+  if (mine && mine.isShown) return $.ui.close({ id: PANE })
+  return togglePane($)
+}
+
 async function installKeys($): Promise<string> {
   if (!home) return 'toc: HOME is not set'
   const path = home + '/.claude/keybindings.json'
@@ -351,7 +358,7 @@ async function installKeys($): Promise<string> {
 async function handleKey($, key: Key, surface?: string) {
   if (!data) return
   const before = ui
-  const r = press(ui, key, { data, repair, alloc: alloc(), previewRows: previewRowCount(preview), preview })
+  const r = press(ui, key, { data, repair, alloc: alloc(), previewCosts: previewCosts(preview, width), preview })
   ui = r.ui
   if (before.cursor[ART] !== ui.cursor[ART] || before.step !== ui.step) await loadPreview($)
   $.ui.invalidate('ui.render')
@@ -415,7 +422,7 @@ async function openInEditor($, path: string, surface?: string) {
     if (known && (await run($, paneAliveArgs(known))).ok) await run($, selectPaneArgs(known))
     return
   }
-  const split = await run($, splitArgs(pane, info, sock, root ?? base ?? '.', path))
+  const split = await run($, splitArgs(pane, sock, root ?? base ?? '.', path))
   if (!split.ok) {
     $.ui.toast('toc: tmux split failed: ' + split.err.trim().slice(0, 80))
     return
@@ -619,7 +626,15 @@ export function register(on) {
     const theirs = await next(e)
     if (!base) return theirs
     const { Box, Button } = $.ui.resolve(e)
-    const mine = Button({ key: 'toc-toggle', label: '≡ toc ⌃X T', plain: true, dimColor: true, action: ACTIONS.toggle, onPress: () => togglePane($) })
+    // A press doesn't say whether it was a click or the chord, and a click
+    // leaves the band holding the keys (so the pane can't take focus): the
+    // chord's toggle is a zero-height button of its own.
+    const mine = Box({ flexDirection: 'row', children: [
+      Button({ key: 'toc-click', label: '≡ toc ⌃X T', plain: true, dimColor: true, onPress: () => clickPane($) }),
+      Box({ height: 0, overflow: 'hidden', children: [
+        Button({ key: 'toc-toggle', label: 'toc', plain: true, action: ACTIONS.toggle, onPress: () => togglePane($) }),
+      ] }),
+    ] })
     return theirs ? Box({ flexDirection: 'column', children: [theirs, mine] }) : mine
   })
 

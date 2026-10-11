@@ -1,8 +1,6 @@
 // The editor half (SPEC §7.5): one nvim per tmux window, reached over a
 // socket; files open as tabs. Pure argv builders — register.ts runs them.
 
-export const WIDE = 220
-
 export type TmuxInfo = { windowId: string; windowWidth: number }
 
 export function tmuxInfoArgs(pane: string): string[] {
@@ -26,10 +24,10 @@ export function remoteTabArgs(socket: string, path: string): string[] {
   return ['nvim', '--server', socket, '--remote-tab', path]
 }
 
-// Split beside Claude when the window is wide, else below it (D20).
-export function splitArgs(claudePane: string, info: TmuxInfo, socket: string, cwd: string, path: string): string[] {
-  const side = info.windowWidth >= WIDE ? ['-h', '-b', '-l', '45%'] : ['-v', '-l', '45%']
-  return ['tmux', 'split-window', ...side, '-t', claudePane, '-c', cwd, '-P', '-F', '#{pane_id}', 'nvim', '--listen', socket, path]
+// The left half of Claude's pane, side by side: editor | Claude (+ sidebar),
+// whatever the width (D20, revised after the first user test).
+export function splitArgs(claudePane: string, socket: string, cwd: string, path: string): string[] {
+  return ['tmux', 'split-window', '-h', '-b', '-l', '50%', '-t', claudePane, '-c', cwd, '-P', '-F', '#{pane_id}', 'nvim', '--listen', socket, path]
 }
 
 export function selectPaneArgs(pane: string): string[] {
