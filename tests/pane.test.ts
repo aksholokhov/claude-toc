@@ -23,7 +23,7 @@ const PANE = {
 type Files = Record<string, string>
 
 // Stand in for Claude Code: a tiny in-memory file system, git, store and env.
-function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; status?: () => string; tmux?: string[][] } = {}) {
+function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; status?: () => string; tmux?: string[][]; panes?: () => string } = {}) {
   const clock = mock.clock(on, { now: 1_000_000 })
   const store = new Map<string, unknown>([['bases', { [BASE]: BASE }]])
   const writes: Record<string, string> = {}
@@ -59,8 +59,10 @@ function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; sta
     if (opts.tmux && (e.argv[0] === 'tmux' || e.argv[0] === 'nvim')) {
       opts.tmux.push(e.argv)
       if (argv === 'tmux display-message -p #{pane_id}') return { value: { exitCode: 0, stdout: '%5\n', stderr: '' } }
+      if (argv.startsWith('tmux display-message -p -t %5 #{pane_id} #{pane_active}')) return { value: { exitCode: 0, stdout: '%5 1\n', stderr: '' } }
       if (argv.startsWith('tmux display-message -p -t %5 ')) return { value: { exitCode: 0, stdout: '@1 200\n', stderr: '' } }
       if (argv.startsWith('tmux display-message -p -t %9 ')) return { value: { exitCode: 0, stdout: '%9 @1\n', stderr: '' } }
+      if (e.argv[1] === 'list-panes' && opts.panes) return { value: { exitCode: 0, stdout: opts.panes(), stderr: '' } }
       if (e.argv[1] === 'split-window') return { value: { exitCode: 0, stdout: '%9\n', stderr: '' } }
       if (e.argv[1] === 'respawn-pane' || e.argv[1] === 'select-pane') return { value: { exitCode: 0, stdout: '', stderr: '' } }
       return { value: { exitCode: 1, stdout: '', stderr: 'no server' } }
@@ -74,7 +76,11 @@ function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; sta
     if (argv.includes(' show ')) return { value: { exitCode: 0, stdout: SHOW, stderr: '' } }
     return { value: { exitCode: 1, stdout: '', stderr: 'unexpected ' + argv } }
   })
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  const opened: Record<string, unknown>[] = []
+  on('ui.open', ($, e) => {
+    opened.push(e)
+    return { value: { isPlaced: true } }
+  })
   on('ui.panes', () => ({ value: [{ id: 'toc', title: 'toc', isShown: true, isFocused: true, isPlaced: true }] }))
   on('ui.focus', ($, e) => {
     focused.push(e.key ?? e.element ?? '')
@@ -86,7 +92,7 @@ function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; sta
   })
   on('ui.log', () => ({ value: undefined }))
   on('session.start', () => ({ cwd: BASE }))
-  return { clock, store, writes, focused, toasts, spawned }
+  return { clock, store, writes, focused, toasts, spawned, opened }
 }
 
 function baseFiles(plan = PLAN_TEXT): Files {
@@ -545,4 +551,22 @@ test('p opens DEV_PLAN.md at the step', async ($, on) => {
   const split = tmux.find((a) => a[1] === 'split-window')!
   expect(split.slice(-6, -4)).toEqual(['nvim', '--listen'])
   expect(split.slice(-3)).toEqual(['+4', '+normal! zt', BASE + '/DEV_PLAN.md'])
+})
+
+test('quitting the viewer hands the keys back to toc, not the prompt', async ($, on) => {
+  const tmux: string[][] = []
+  let panes = '%5\n%9\n'
+  const h = host(on, baseFiles(), { git: true, tmux, panes: () => panes })
+  const opened = h.opened
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'key:3' })
+  await ui.press({ key: 'key:j' })
+  await ui.press({ key: 'key:d' })
+  opened.length = 0
+  await h.clock.advance(500)
+  expect(opened.length).toBe(0) // still open
+  panes = '%5\n' // q in the pager: the pane is gone
+  await h.clock.advance(500)
+  expect(opened).toEqual([expect.objectContaining({ id: 'toc', focus: true })])
 })

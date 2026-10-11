@@ -455,6 +455,40 @@ async function openInEditor($, path: string, surface?: string, line?: number) {
     return
   }
   await keepPane($, 'nvimPanes', w.windowId, split.out.trim())
+  watchPane($, split.out.trim(), w.pane)
+}
+
+// Panes toc started (nvim, the viewer), watched while they live: when one
+// quits, tmux returns to Claude's pane and Claude to its prompt; the person
+// came from toc, so hand the keys back to it.
+let watched: { pane: string; claude: string }[] = []
+let watchTimer: { cancel: () => void } | null = null
+
+function watchPane($, pane: string, claude: string) {
+  watched = [...watched.filter((w) => w.pane !== pane), { pane, claude }]
+  if (watchTimer) return
+  watchTimer = $.clock.every(400, () => {
+    checkWatched($).catch(() => undefined)
+  })
+}
+
+async function checkWatched($) {
+  const r = await run($, ['tmux', 'list-panes', '-a', '-F', '#{pane_id}'])
+  if (!r.ok) return
+  const live = new Set(r.out.split('\n').map((l) => l.trim()))
+  const gone = watched.filter((w) => !live.has(w.pane))
+  if (!gone.length) return
+  watched = watched.filter((w) => live.has(w.pane))
+  if (!watched.length && watchTimer) {
+    watchTimer.cancel()
+    watchTimer = null
+  }
+  // Only once tmux is back on Claude's pane: the other left pane may have
+  // taken the focus instead, and then it's the person's.
+  const claude = gone[gone.length - 1].claude
+  const active = await run($, ['tmux', 'display-message', '-p', '-t', claude, '#{pane_id} #{pane_active}'])
+  if (active.out.trim() !== claude + ' 1') return
+  await openPane($, true)
 }
 
 // The theme for delta and lazygit, as the person's shell would set it.
@@ -478,6 +512,7 @@ async function inViewer($, cmd: string[], what: string) {
     const r = await run($, respawnArgs(viewer, cwd, env, cmd))
     if (r.ok) {
       await run($, selectPaneArgs(viewer))
+      watchPane($, viewer, w.pane)
       return
     }
   }
@@ -489,6 +524,7 @@ async function inViewer($, cmd: string[], what: string) {
     return
   }
   await keepPane($, 'viewerPanes', w.windowId, split.out.trim())
+  watchPane($, split.out.trim(), w.pane)
 }
 
 // A commit, a file in a commit, or a working-tree change, in the pager.

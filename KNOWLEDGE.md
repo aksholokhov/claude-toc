@@ -142,3 +142,8 @@ Hard-won facts about the platform. Verified against the docs on 2026-10-10
   error. Check liveness by the pane echoing its own id (and window).
 - nvim `--remote-tab` takes no `+line`; `--remote-send
   '<C-\><C-N>:tabedit +N file<CR>'` does it.
+- When a tmux pane beside Claude quits, tmux goes back to Claude's pane but
+  Claude gives the keys to its **prompt**, not the pane that had them. toc
+  watches the panes it started (400 ms `list-panes` while any is alive) and
+  re-opens itself with `focus` when one is gone and Claude's pane is active.
+  Verified live both ways (without it, the next `j` lands in the prompt).
