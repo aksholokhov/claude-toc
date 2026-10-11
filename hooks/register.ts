@@ -1,0 +1,633 @@
+// claude-toc: the hooks module. Everything that touches `$` lives here (the
+// mods validator only follows `$` into top-level functions of this file);
+// hooks/lib/* is pure and unit-tested.
+
+import { parseDiff } from './lib/diff.ts'
+import { aliveArgs, paneAliveArgs, parseTmuxInfo, remoteTabArgs, selectPaneArgs, socketPath, splitArgs, tmuxInfoArgs } from './lib/editor.ts'
+import {
+  commitsByStep, diffArgs, fileState, logArgs, parseLog, parseStatus, relativeTo, rootArgs, showArgs, statusArgs, TRAILER,
+} from './lib/git.ts'
+import { appendEntry, editedPath, filesByStep, LEDGER_FILE, parseLedger, WRITE_TOOLS } from './lib/ledger.ts'
+import {
+  ART, PLAN, PREV, UNATTRIBUTED, allocate, fileRowIndex, focusRow, initialUI, isShown, joinPath, planSignature,
+  press, previewRowCount, previewTarget, reconcile, rowsOf, targetKey,
+} from './lib/model.ts'
+import type { ArtFile, CtxFile, Data, Effect, Key, Preview, Repair, Target, UI } from './lib/model.ts'
+import { parseMode, rolesFor } from './lib/palette.ts'
+import { activeStep, orphanTrailers, parsePlan } from './lib/plan.ts'
+import { REPAIR_SYSTEM, devPlanTemplate, mergeKeybindings, repairTask, rulesBlock, transcriptExcerpt } from './lib/text.ts'
+import { ACTIONS, drawnOrder, render } from './lib/view.ts'
+
+const PANE = 'toc'
+const PLAN_FILE = 'DEV_PLAN.md'
+const DEFAULT_CONTEXT = ['SPEC.md', 'DEV_PLAN.md', 'KNOWLEDGE.md', 'SCRATCHPAD.md']
+const COLUMNS = 42
+const REPAIR_AGENT = 'toc:repair'
+
+// ── session state (module-level; lost on reload, rebuilt by refresh) ────
+let base: string | null = null
+let root: string | null = null
+let home = ''
+let data: Data | null = null
+let ui: UI = initialUI()
+let repair: Repair = null
+let repairAgent: string | null = null
+let preview: Preview | null = null
+let previewWanted = ''
+let roles = rolesFor(null)
+let stamp = ''
+let width = COLUMNS
+let bodyRows = 30
+let lastFocus: string | null = null
+let refreshing = false
+let again = false
+
+// ── small helpers ───────────────────────────────────────────────────────
+
+async function run($, argv: string[], cwd?: string): Promise<{ ok: boolean; out: string; err: string }> {
+  try {
+    const r = await $.process.run(argv, { cwd: cwd ?? base ?? undefined, timeoutMs: 15000 })
+    return { ok: r.exitCode === 0, out: r.stdout, err: r.stderr }
+  } catch (err) {
+    return { ok: false, out: '', err: String(err) }
+  }
+}
+
+async function readText($, path: string): Promise<string | null> {
+  try {
+    return await $.fs.read(path)
+  } catch {
+    return null
+  }
+}
+
+async function mtime($, path: string): Promise<number> {
+  try {
+    if (!(await $.fs.exists(path))) return 0
+    return (await $.fs.stat(path)).mtimeMs
+  } catch {
+    return 0
+  }
+}
+
+function abs(dir: string, p: string): string {
+  return joinPath(dir, p)
+}
+
+function under(dir: string, p: string): boolean {
+  const d = dir.endsWith('/') ? dir : dir + '/'
+  return p === dir || p.startsWith(d)
+}
+
+function counts(): number[] {
+  if (!data) return [0, 0, 0, 0]
+  return [0, 1, 2].map((s) => rowsOf(s, ui, data!, repair).length).concat([previewRowCount(preview)])
+}
+
+function alloc(): number[] {
+  return allocate(ui, counts(), bodyRows)
+}
+
+// ── data ────────────────────────────────────────────────────────────────
+
+async function stampOf($): Promise<string> {
+  if (!base) return ''
+  const parts = [
+    await mtime($, abs(base, PLAN_FILE)),
+    await mtime($, abs(base, LEDGER_FILE)),
+    root ? await mtime($, abs(root, '.git/index')) : 0,
+    root ? await mtime($, abs(root, '.git/HEAD')) : 0,
+    root ? await mtime($, abs(root, '.git/logs/HEAD')) : 0,
+    home ? await mtime($, home + '/.config/theme/mode') : 0,
+  ]
+  for (const name of data?.context.map((c) => c.path) ?? []) parts.push(await mtime($, name))
+  return parts.join(':')
+}
+
+async function refresh($) {
+  if (!base) return
+  if (refreshing) {
+    again = true
+    return
+  }
+  refreshing = true
+  try {
+    do {
+      again = false
+      await load($)
+    } while (again)
+  } finally {
+    refreshing = false
+  }
+}
+
+async function load($) {
+  const b = base!
+  const planPath = abs(b, PLAN_FILE)
+  const text = await readText($, planPath)
+  const plan = text === null ? null : parsePlan(text)
+
+  const names = plan?.context ?? DEFAULT_CONTEXT
+  const context: CtxFile[] = []
+  for (const name of names) {
+    const path = abs(b, name)
+    const m = await mtime($, path)
+    context.push({ name, path, exists: m > 0, mtimeMs: m })
+  }
+
+  let commits = new Map()
+  let status = new Map<string, string>()
+  if (root) {
+    const log = await run($, logArgs(root), root)
+    if (log.ok) commits = commitsByStep(parseLog(log.out))
+    const st = await run($, statusArgs(root), root)
+    if (st.ok) status = parseStatus(st.out)
+  }
+  if (plan) plan.issues.push(...orphanTrailers(plan, commits.keys()))
+
+  const ledger = parseLedger((await readText($, abs(b, LEDGER_FILE))) ?? '')
+  const files = new Map<string, ArtFile[]>()
+  for (const [step, paths] of filesByStep(ledger)) {
+    const list: ArtFile[] = []
+    for (const path of paths) {
+      const exists = (await mtime($, path)) > 0
+      const rel = root ? relativeTo(root, path) : relativeTo(b, path)
+      list.push({ path, rel, state: root ? fileState(status.get(rel), exists) : exists ? 'M' : 'D' })
+    }
+    files.set(step, list)
+  }
+
+  roles = rolesFor(home ? parseMode(await readText($, home + '/.config/theme/mode')) : null)
+  data = { base: b, root, plan, planPath, context, commits, files, now: await $.clock.now() }
+
+  const sig = planSignature(plan)
+  const broken = !!plan && plan.issues.some((i) => i.severity === 'error')
+  if (!broken) repair = repair && repair.phase === 'running' ? repair : null
+  else if (!repair || (repair.phase === 'dismissed' && repair.sig !== sig)) repair = { phase: 'ask', sig }
+
+  ui = reconcile(ui, data, repair)
+  stamp = await stampOf($)
+  await loadPreview($)
+  $.ui.invalidate('ui.render')
+}
+
+async function loadPreview($) {
+  if (!data) return
+  const t = previewTarget(ui, data)
+  if (!t) {
+    preview = null
+    return
+  }
+  const key = targetKey(t)
+  previewWanted = key
+  if (preview && preview.key === key) {
+    if (t.kind === 'cfile') ui = { ...ui, previewOffset: fileRowIndex(preview, t.path) }
+    return
+  }
+  const p = await fetchPreview($, t, key)
+  if (previewWanted !== key) return
+  preview = p
+  if (t.kind === 'cfile') ui = { ...ui, previewOffset: fileRowIndex(p, t.path) }
+}
+
+async function fetchPreview($, t: Target, key: string): Promise<Preview> {
+  const r = root ?? base!
+  if (t.kind === 'commit' || t.kind === 'cfile') {
+    const show = await run($, showArgs(r, t.sha), r)
+    return show.ok ? { key, files: parseDiff(show.out), source: null, path: '' } : { key, files: null, source: null, path: '', error: 'git show failed' }
+  }
+  if (t.state === 'A' || !root) {
+    const text = await readText($, t.path)
+    return text === null ? { key, files: null, source: null, path: t.rel, error: 'cannot read ' + t.rel } : { key, files: null, source: text, path: t.rel }
+  }
+  if (t.state === '✓') {
+    const text = await readText($, t.path)
+    return { key, files: null, source: text ?? '', path: t.rel }
+  }
+  const diff = await run($, diffArgs(root, t.rel), root)
+  return { key, files: diff.ok ? parseDiff(diff.out) : [], source: null, path: t.rel, error: diff.ok ? undefined : 'git diff failed' }
+}
+
+async function poll($) {
+  if (!base || refreshing) return
+  const s = await stampOf($)
+  if (s !== stamp) await refresh($)
+}
+
+// ── activation & scaffolding ────────────────────────────────────────────
+
+async function activate($, dir: string, opts: { create: boolean }): Promise<string> {
+  const cwd = await $.session.cwd()
+  const target = abs(cwd, dir || '.').replace(/\/\.$/, '').replace(/\/$/, '') || '/'
+  let isDir = false
+  try {
+    isDir = (await $.fs.stat(target)).kind === 'dir'
+  } catch {
+    isDir = false
+  }
+  if (!isDir) return `toc: ${target} is not a directory`
+
+  const planPath = abs(target, PLAN_FILE)
+  const hasPlan = await $.fs.exists(planPath)
+  if (!hasPlan && !opts.create) return `toc: no ${PLAN_FILE} in ${target}`
+
+  base = target
+  const top = await run($, rootArgs(target), target)
+  root = top.ok ? top.out.trim() : null
+
+  const notes: string[] = []
+  if (!hasPlan) {
+    await $.fs.write(planPath, devPlanTemplate(target.split('/').pop() || 'project'))
+    notes.push('created ' + PLAN_FILE)
+  }
+  const ledgerPath = abs(target, LEDGER_FILE)
+  if (!(await $.fs.exists(ledgerPath))) await $.fs.write(ledgerPath, '')
+  if (root) {
+    const ex = await run($, ['git', '-C', root, 'rev-parse', '--git-path', 'info/exclude'], root)
+    if (ex.ok) {
+      const exPath = abs(root, ex.out.trim())
+      const rel = relativeTo(root, abs(target, '.toc'))
+      const pattern = '/' + rel.replace(/^\/+/, '') + '/'
+      const cur = (await readText($, exPath)) ?? ''
+      if (!cur.split('\n').includes(pattern)) {
+        await $.fs.write(exPath, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + pattern + '\n')
+        notes.push('excluded ' + pattern + ' from git')
+      }
+    }
+  }
+  const map = ((await $.store.get('bases')) ?? {}) as Record<string, string>
+  if (map[cwd] !== target) await $.store.set('bases', { ...map, [cwd]: target })
+
+  ui = initialUI()
+  preview = null
+  repair = null
+  await refresh($)
+  return ['toc: showing ' + target + (notes.length ? ' (' + notes.join(', ') + ')' : ''), '', rulesBlock(planPath)].join('\n')
+}
+
+async function openPane($, focus: boolean) {
+  await $.ui.open(focus ? { id: PANE, title: 'toc', columns: COLUMNS, focus: true } : { id: PANE, title: 'toc', columns: COLUMNS })
+}
+
+async function togglePane($) {
+  const panes = await $.ui.panes()
+  const mine = panes.find((p) => p.id === PANE)
+  if (mine && mine.isShown && mine.isFocused) {
+    await $.ui.close({ id: PANE })
+    return
+  }
+  if (!base) {
+    const msg = await activate($, '.', { create: false })
+    if (!base) {
+      $.ui.toast('toc: no DEV_PLAN.md here; run /project <dir>')
+      return
+    }
+    $.ui.log(msg.split('\n')[0])
+  }
+  await openPane($, true)
+}
+
+async function installKeys($): Promise<string> {
+  if (!home) return 'toc: HOME is not set'
+  const path = home + '/.claude/keybindings.json'
+  const cur = await readText($, path)
+  try {
+    const merged = mergeKeybindings(cur)
+    if (merged.added.length) await $.fs.write(path, merged.text)
+    const lines = []
+    lines.push(merged.added.length ? 'toc: added ' + merged.added.join(', ') + ' to ' + path : 'toc: keybindings already in place')
+    if (merged.conflicts.length) lines.push('toc: left alone (already bound): ' + merged.conflicts.join('; '))
+    return lines.join('\n')
+  } catch (err) {
+    return 'toc: ' + String((err as Error).message ?? err)
+  }
+}
+
+// ── keys & effects ──────────────────────────────────────────────────────
+
+async function handleKey($, key: Key, surface?: string) {
+  if (!data) return
+  const before = ui
+  const r = press(ui, key, { data, repair, alloc: alloc(), previewRows: previewRowCount(preview), preview })
+  ui = r.ui
+  if (before.cursor[ART] !== ui.cursor[ART] || before.step !== ui.step) await loadPreview($)
+  $.ui.invalidate('ui.render')
+  await effect($, r.effect, surface)
+  syncRing($)
+}
+
+// Keep the focus ring on the cursor row after our own moves.
+function syncRing($) {
+  const sec = ui.sec
+  const key = sec === PREV || ui.cursor[sec] === null ? 'h:' + sec : ui.cursor[sec]
+  if (key === lastFocus) return
+  lastFocus = key
+  $.clock.after(40, () => {
+    $.ui.focus({ requestId: PANE, key: 'r:' + key }).catch(() => undefined)
+  })
+}
+
+async function effect($, e: Effect, surface?: string) {
+  if (e.kind === 'open') return openInEditor($, e.path, surface)
+  if (e.kind === 'diff') return diffInEditor($, e.target, surface)
+  if (e.kind === 'repair') return e.yes ? startRepair($) : dismissRepair($)
+  if (e.kind === 'scaffold') {
+    const msg = await activate($, base ?? '.', { create: true })
+    $.ui.log(msg.split('\n')[0])
+  }
+}
+
+async function openInEditor($, path: string, surface?: string) {
+  const pane = await $.env.get('TMUX_PANE')
+  const tmux = await $.env.get('TMUX')
+  if (!pane || !tmux) {
+    await $.ui.copy(surface ? { text: path, surface } : { text: path }).catch(() => undefined)
+    $.ui.toast('toc: not in tmux — copied ' + path)
+    return
+  }
+  const info = parseTmuxInfo((await run($, tmuxInfoArgs(pane))).out)
+  if (!info) {
+    $.ui.toast('toc: could not read the tmux window')
+    return
+  }
+  const runtime = (await $.env.get('XDG_RUNTIME_DIR')) || '/tmp'
+  const sock = socketPath(runtime, info.windowId)
+  const panes = ((await $.store.get('nvimPanes')) ?? {}) as Record<string, string>
+  const known = panes[info.windowId]
+  const alive = (await run($, aliveArgs(sock))).ok
+  if (alive) {
+    const r = await run($, remoteTabArgs(sock, path))
+    if (!r.ok) $.ui.toast('toc: nvim refused ' + path)
+    if (known && (await run($, paneAliveArgs(known))).ok) await run($, selectPaneArgs(known))
+    return
+  }
+  const split = await run($, splitArgs(pane, info, sock, root ?? base ?? '.', path))
+  if (!split.ok) {
+    $.ui.toast('toc: tmux split failed: ' + split.err.trim().slice(0, 80))
+    return
+  }
+  await $.store.set('nvimPanes', { ...panes, [info.windowId]: split.out.trim() })
+}
+
+async function diffInEditor($, t: Target, surface?: string) {
+  const b = base!
+  const r = root ?? b
+  let text = ''
+  let name = ''
+  if (t.kind === 'commit' || t.kind === 'cfile') {
+    const show = await run($, ['git', '-C', r, 'show', '--stat', '--patch', '--no-color', '--no-ext-diff', '-M', t.sha], r)
+    text = show.out
+    name = t.short + '.diff'
+  } else if (t.state === 'A' || t.state === '✓') {
+    return openInEditor($, t.path, surface)
+  } else {
+    const d = await run($, diffArgs(r, t.rel), r)
+    text = d.out
+    name = t.rel.replace(/\//g, '_') + '.diff'
+  }
+  const path = abs(b, '.toc/diffs/' + name)
+  await $.fs.write(path, text)
+  return openInEditor($, path, surface)
+}
+
+// ── repair (SPEC §7.6) ──────────────────────────────────────────────────
+
+async function startRepair($) {
+  if (!data || !data.plan || !base) return
+  const text = (await readText($, data.planPath)) ?? ''
+  await $.fs.write(abs(base, '.toc/DEV_PLAN.md.bak'), text)
+  let excerpt = ''
+  try {
+    excerpt = transcriptExcerpt((await $.session.messages()).slice(-40))
+  } catch {
+    excerpt = ''
+  }
+  const task = repairTask(data.planPath, data.plan.issues, [...data.commits.keys()], excerpt)
+  repair = { phase: 'running', sig: planSignature(data.plan) }
+  $.ui.invalidate('ui.render')
+  const r = await $.agent.spawn({ subagentType: REPAIR_AGENT, prompt: task, description: 'repair DEV_PLAN.md' })
+  if (r.deny || !r.agentId) {
+    repair = { phase: 'ask', sig: planSignature(data.plan) }
+    $.ui.toast('toc: repair could not start: ' + (r.deny ?? 'no agent'))
+  } else {
+    repairAgent = r.agentId
+  }
+  $.ui.invalidate('ui.render')
+}
+
+async function dismissRepair($) {
+  if (!data) return
+  repair = { phase: 'dismissed', sig: planSignature(data.plan) }
+  $.ui.invalidate('ui.render')
+}
+
+// ── register ────────────────────────────────────────────────────────────
+
+export function register(on) {
+  on('session.start', async ($, e, next) => {
+    home = (await $.env.get('HOME')) ?? ''
+    await $.agent.register({
+      name: 'repair',
+      description: 'Repairs a DEV_PLAN.md that the toc sidebar cannot parse. Dispatched by the toc plugin only.',
+      prompt: REPAIR_SYSTEM,
+      tools: ['Read', 'Edit'],
+      model: 'haiku',
+    })
+    await $.tool.register({
+      name: 'activate',
+      description:
+        'Show the toc sidebar for a project folder that holds (or should hold) DEV_PLAN.md: knowledge files, plan progress, and per-step commits and files. Idempotent; creates DEV_PLAN.md from a template only if missing. Call it once you know the project folder, e.g. after writing or finding a DEV_PLAN.md.',
+      inputSchema: { type: 'object', properties: { dir: { type: 'string', description: 'Project folder, absolute or relative to the working directory' } }, required: ['dir'] },
+    })
+    await $.command.register({ name: 'toc', description: 'Show or hide the toc sidebar (also: /toc keys, /toc refresh)', argumentHint: '[keys|refresh]', immediate: true })
+    await $.command.register({ name: 'project', description: 'Point the toc sidebar at a project folder and scaffold DEV_PLAN.md', argumentHint: '[dir]' })
+
+    const cwd = await $.session.cwd()
+    const map = ((await $.store.get('bases')) ?? {}) as Record<string, string>
+    if (map[cwd] && (await $.fs.exists(abs(map[cwd], PLAN_FILE)))) {
+      base = map[cwd]
+      const top = await run($, rootArgs(base), base)
+      root = top.ok ? top.out.trim() : null
+      await refresh($)
+      await openPane($, false)
+    }
+    $.clock.every(2000, () => {
+      poll($).catch(() => undefined)
+    })
+    return next(e)
+  })
+
+  on('agent.offer', { agent: REPAIR_AGENT }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
+
+  on('command.run', { command: 'toc' }, async ($, e) => {
+    const arg = (e.args ?? '').trim()
+    if (arg === 'keys') return { text: await installKeys($) }
+    if (arg === 'refresh') {
+      stamp = ''
+      await refresh($)
+      return {}
+    }
+    await togglePane($)
+    return {}
+  })
+
+  on('command.run', { command: 'project' }, async ($, e) => {
+    const arg = (e.args ?? '').trim()
+    if (!arg) {
+      const cwd = await $.session.cwd()
+      if (!(await $.fs.exists(abs(cwd, PLAN_FILE)))) {
+        return { text: `toc: no ${PLAN_FILE} in ${cwd}. Run /project <dir> to point at a project folder, or /project . to create one here.` }
+      }
+    }
+    const msg = await activate($, arg || '.', { create: true })
+    if (base) await openPane($, true)
+    return { text: msg }
+  })
+
+  on('tool.call', { tool: 'mcp__toc__activate' }, async ($, e) => {
+    const msg = await activate($, String(e.dir ?? '.'), { create: true })
+    if (base) await openPane($, false)
+    return { result: msg }
+  }).catch(() => ({ result: 'toc: activate failed; see the debug log' }))
+
+  on('prompt.context', async ($, e, next) => {
+    const r = await next(e)
+    if (!base) return r
+    return { ...r, blocks: [...r.blocks, { name: 'toc', text: rulesBlock(abs(base, PLAN_FILE)) }] }
+  })
+
+  on('attribution.text', { kind: 'commit' }, async ($, e, next) => {
+    const r = await next(e)
+    if (!base) return r
+    const text = await readText($, abs(base, PLAN_FILE))
+    const step = text ? activeStep(parsePlan(text)) : null
+    if (!step) return r
+    const line = TRAILER + ': ' + step.id
+    if (r.text.includes(line)) return r
+    return { text: r.text ? r.text + '\n' + line : line }
+  })
+
+  on('classic.PostToolUse', async ($, e, next) => {
+    const result = await next(e)
+    if (!base || !WRITE_TOOLS.includes(e.tool_name)) return result
+    const raw = editedPath(e.tool_input)
+    if (!raw) return result
+    const path = abs(e.cwd ?? (await $.session.cwd()), raw)
+    const scope = root ?? base
+    if (!under(scope, path) || under(abs(base, '.toc'), path)) return result
+    const text = await readText($, data?.planPath ?? abs(base, PLAN_FILE))
+    const step = text ? activeStep(parsePlan(text)) : null
+    const ledgerPath = abs(base, LEDGER_FILE)
+    const cur = (await readText($, ledgerPath)) ?? ''
+    await $.fs.write(ledgerPath, appendEntry(cur, { ts: await $.clock.now(), path, step: step ? step.id : null, session: await $.session.id() }))
+    await refresh($)
+    return result
+  }).catch(($, e, next) => next(e))
+
+  on('turn.complete', async ($, e, next) => {
+    const r = await next(e)
+    if (repairAgent && e.agentId === repairAgent) {
+      repairAgent = null
+      repair = null
+      const said = String(e.answer ?? '').trim().split('\n').pop() ?? ''
+      $.ui.toast('toc: ' + (said || 'repair finished').slice(0, 120))
+      stamp = ''
+    }
+    if (base) await refresh($)
+    return r
+  })
+
+  // The repair agent's completion would otherwise cost a main-model turn.
+  on('prompt.submit', async ($, e, next) => {
+    if (repairAgent === null && e.origin && e.origin.kind === 'task-notification' && /toc:repair|repair DEV_PLAN\.md/.test(e.text ?? '')) {
+      return { drop: 'toc handled its repair agent' }
+    }
+    if (repairAgent && e.origin && e.origin.kind === 'task-notification' && (e.text ?? '').includes(repairAgent)) {
+      return { drop: 'toc handled its repair agent' }
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const theirs = await next(e)
+    if (!base) return theirs
+    const { Box, Button } = $.ui.resolve(e)
+    const mine = Button({ key: 'toc-toggle', label: '≡ toc ⌃X T', plain: true, dimColor: true, action: ACTIONS.toggle, onPress: () => togglePane($) })
+    return theirs ? Box({ flexDirection: 'column', children: [theirs, mine] }) : mine
+  })
+
+  on('ui.render', { component: 'Pane' }, async ($, e, next) => {
+    if (e.requestId !== PANE) return next(e)
+    const el = $.ui.resolve(e)
+    width = Math.max(24, e.props.bodyColumns ?? COLUMNS)
+    bodyRows = Math.max(10, (e.props.scroll && e.props.scroll.bodyRows) || 30)
+    if (!data) {
+      return el.Text({ color: 'subtle', children: [base ? 'loading…' : 'toc: run /project <dir>'] })
+    }
+    return render({
+      el,
+      ui,
+      data,
+      repair,
+      preview,
+      alloc: alloc(),
+      width,
+      roles,
+      focused: !!e.props.isFocused,
+      act: {
+        row: (key: string) => () => onRow($, key),
+        key: (k: string) => () => handleKey($, k as Key),
+      },
+    })
+  })
+
+  on('ui.focus', { requestId: PANE }, async ($, e, next) => {
+    const el = e.element ?? ''
+    if (!data || !el.startsWith('r:')) return next(e)
+    const key = el.slice(2)
+    if (e.origin.kind === 'person' && lastFocus && lastFocus !== key) {
+      const order = drawnOrder(ui, data, repair, alloc())
+      const from = order.indexOf(lastFocus)
+      const to = order.indexOf(key)
+      const edge = edgeMove(from, to)
+      if (edge) {
+        await handleKey($, edge)
+        return {}
+      }
+    }
+    lastFocus = key
+    const before = ui
+    ui = focusRow(ui, data, repair, key, alloc())
+    if (before.cursor[ART] !== ui.cursor[ART] || before.step !== ui.step) await loadPreview($)
+    $.ui.invalidate('ui.render')
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
+    if (!data || e.origin.kind !== 'person') return next(e)
+    const big = Math.abs(e.by) >= 3
+    await handleKey($, (e.by > 0 ? (big ? 'pagedown' : 'j') : big ? 'pageup' : 'k') as Key)
+    return {}
+  }).catch(($, e, next) => next(e))
+}
+
+// Arrow onto the next section while this one still has hidden rows → scroll it.
+function edgeMove(from: number, to: number): Key | null {
+  if (from < 0 || to < 0 || !data) return null
+  const sec = ui.sec
+  if (sec === PREV || !isShown(ui, sec)) return null
+  const rows = rowsOf(sec, ui, data, repair)
+  const a = alloc()[sec]
+  const idx = rows.findIndex((r) => r.key === ui.cursor[sec])
+  if (idx < 0) return null
+  if (to > from && idx === ui.offset[sec] + a - 1 && idx < rows.length - 1) return 'j'
+  if (to < from && idx === ui.offset[sec] && idx > 0) return 'k'
+  return null
+}
+
+async function onRow($, key: string) {
+  if (!data) return
+  ui = focusRow(ui, data, repair, key, alloc())
+  lastFocus = key
+  await handleKey($, 'o')
+}
