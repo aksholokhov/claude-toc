@@ -27,14 +27,23 @@ export type ViewInput = {
 }
 
 // Keys a mod can't get as hotkeys arrive through these spare engine actions
-// (KNOWLEDGE.md: Alt bindings in the Global context press the Button).
+// (KNOWLEDGE.md: Alt bindings in the Global context press the Button). They
+// must have no engine handler: app:toggleReplTab (v0.1) is Claude's "switch
+// tab" as soon as a second pane such as /diff is open, and took the chord.
 export const ACTIONS = {
-  toggle: 'app:toggleReplTab',
-  pagedown: 'app:toggleDiffNoiseFilter',
-  pageup: 'app:toggleDiffPreSession',
+  toggle: 'strip:jump1',
+  pagedown: 'strip:jump2',
+  pageup: 'strip:jump3',
   prevsec: 'confirm:previousField',
   nextsec: 'permission:toggleDebug',
 } as const
+
+// What earlier versions bound, for /toc keys to move off.
+export const OLD_ACTIONS: Record<string, string> = {
+  'app:toggleReplTab': 'toggle',
+  'app:toggleDiffNoiseFilter': 'pagedown',
+  'app:toggleDiffPreSession': 'pageup',
+}
 
 export const STATUS_GLYPH = { todo: '○', doing: '◐', done: '✓', cancelled: '✗' } as const
 
@@ -254,21 +263,53 @@ function previewBody(v: ViewInput): unknown[] {
   return out
 }
 
+type LegendItem = { hotkey?: string; action?: keyof typeof ACTIONS; label: string }
+
+// The legend's items in groups (moves, actions, sections), each group
+// packed into as few rows as the width allows. Shared with the layout, so
+// the Keys section is given exactly the rows it draws.
+export function legendRows(width: number, repairAsk: boolean): LegendItem[][] {
+  const h = (hotkey: string, label: string): LegendItem => ({ hotkey, label })
+  const a = (action: keyof typeof ACTIONS, label: string): LegendItem => ({ action, label })
+  const groups: LegendItem[][] = [
+    [h('j', '↓'), h('k', '↑'), h('f', '⇟'), h('b', '⇞'), h('h', '◂'), h('l', '▸'), h('g', '⤒'), h('e', '⤓')],
+    [...(repairAsk ? [h('y', 'yes'), h('n', 'no')] : []), h('o', 'open'), h('d', 'diff'), h('v', 'git'), h('p', 'plan'), h('z', 'zoom'), h('q', 'close')],
+    // Alt keys only reach us in terminals that send them (iTerm2: Option as Esc+).
+    [h('1', 'ctx'), h('2', 'plan'), h('3', 'art'), h('4', 'prev'), h('5', 'keys'), a('pagedown', '⌥j'), a('pageup', '⌥k'), a('prevsec', '⌥h'), a('nextsec', '⌥l')],
+  ]
+  const cells = (it: LegendItem) => (it.hotkey ? 3 : 0) + len(it.label)
+  const rows: LegendItem[][] = []
+  for (const g of groups) {
+    let row: LegendItem[] = []
+    let used = 0
+    for (const it of g) {
+      const need = (row.length ? 1 : 0) + cells(it)
+      if (row.length && used + need > width) {
+        rows.push(row)
+        row = []
+        used = 0
+      }
+      used += row.length ? 1 + cells(it) : cells(it)
+      row.push(it)
+    }
+    if (row.length) rows.push(row)
+  }
+  return rows
+}
+
+export function isRepairAsk(repair: Repair, data: Data): boolean {
+  return !!(repair && repair.phase === 'ask' && data.plan && data.plan.issues.some((i) => i.severity === 'error'))
+}
+
 // The key buttons are drawn even while Keys is folded: a mod's hotkeys are
 // its drawn Buttons, so folded means drawn into zero rows, not left out.
 function legend(v: ViewInput, open: boolean) {
-  const { el, roles } = v
-  const hot = (k: string, label: string) => el.Button({ key: 'key:' + k, label, hotkey: k, plain: true, dimColor: true, onPress: v.act.key(k) })
-  const alt = (name: keyof typeof ACTIONS, label: string) =>
-    el.Button({ key: 'act:' + name, label, plain: true, dimColor: true, action: ACTIONS[name], onPress: v.act.key(name) })
-  const repairAsk = v.repair && v.repair.phase === 'ask' && v.data.plan && v.data.plan.issues.some((i) => i.severity === 'error')
-  const row1 = [hot('j', '↓'), hot('k', '↑'), hot('f', '⇟'), hot('b', '⇞'), hot('h', '◂'), hot('l', '▸'), hot('g', '⤒'), hot('e', '⤓')]
-  const row2 = [hot('o', 'open'), hot('d', 'diff'), hot('v', 'git'), hot('z', 'zoom'), hot('q', 'close')]
-  if (repairAsk) row2.unshift(hot('y', 'yes'), hot('n', 'no'))
-  // Alt keys only reach us in terminals that send them (iTerm2: Option as Esc+).
-  const row3 = [hot('1', 'ctx'), hot('2', 'plan'), hot('3', 'art'), hot('4', 'prev'), hot('5', 'keys'),
-    alt('pagedown', '⌥j'), alt('pageup', '⌥k'), alt('prevsec', '⌥h'), alt('nextsec', '⌥l')]
-  const rows = [row1, row2, row3].map((r) => el.Box({ flexDirection: 'row', columnGap: 1, flexWrap: 'wrap', children: r }))
+  const { el } = v
+  const button = (it: LegendItem) => it.hotkey
+    ? el.Button({ key: 'key:' + it.hotkey, label: it.label, hotkey: it.hotkey, plain: true, dimColor: true, onPress: v.act.key(it.hotkey) })
+    : el.Button({ key: 'act:' + it.action, label: it.label, plain: true, dimColor: true, action: ACTIONS[it.action!], onPress: v.act.key(it.action!) })
+  const rows = legendRows(v.width - 1, isRepairAsk(v.repair, v.data))
+    .map((r) => el.Box({ flexDirection: 'row', columnGap: 1, children: r.map(button) }))
   return el.Box(open
     ? { key: 'legend', flexDirection: 'column', children: rows }
     : { key: 'legend', flexDirection: 'column', height: 0, overflow: 'hidden', children: rows })

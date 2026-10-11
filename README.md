@@ -46,9 +46,10 @@ For development, load the working tree instead: `claude --plugin-dir ~/claude-to
   Clicking `≡ toc` above the prompt opens or closes it.
 - In the sidebar: `j`/`k` move and flow from one section into the next,
   `f`/`b` page, `1`–`5` jump to a section (`5` unfolds the key legend), `h`/`l` fold (milestone, commit,
-  or the whole section on its header), `z` zoom a section, `o`/Enter open
+  or the whole section on its header), and drill in/out: `l` on a step → its Artifacts, on a
+  commit or file → Preview, `h` back, `z` zoom a section, `o`/Enter open
   (a commit opens as its diff), `d` diff, `v` lazygit (the file's history, or
-  the log), `q` close, `Esc` back to the prompt. Click a row's title to open
+  the log), `p` the step in DEV_PLAN.md, `q` close, `Esc` back to the prompt. Click a row's title to open
   it (tmux needs `set -g mouse on`). `⌥j/⌥k/⌥h/⌥l` page and switch sections
   where the terminal sends Alt.
 - Files open in one nvim per tmux window, in the left half of Claude's tmux

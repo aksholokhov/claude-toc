@@ -179,12 +179,13 @@ from a focused pane. `/toc keys` merges those bindings into
 | `f` / `b` | page down / up (also `⌥j`/`⌥k`, PgDn/PgUp and the wheel) |
 | `1`–`5` | jump to Context / Plan / Artifacts / Preview / Keys (also `⌥h`/`⌥l` prev/next) |
 | `q` | close the sidebar |
-| `h` / `l` | fold / unfold: milestone, commit, or the section on its header |
+| `h` / `l` | fold / unfold (milestone, commit, a section on its header) and drill (D39): `l` on a step → its Artifacts, on an open commit or a file → Preview; `h` backs out (Preview → Artifacts → Plan) |
 | `z` | zoom the focused section to the full pane; again to restore |
 | `g` / `e` | top (section header) / end of section |
 | `o`, Enter | open: file → nvim tab; step → its Artifacts; commit, or a file under one → its change in the viewer (D37) |
 | `d` | the selected commit/file's change in the viewer (`git show` / `git diff HEAD`, through the person's pager: delta) |
 | `v` | lazygit in the viewer: a commit → its log; a file → that file's history (`-f`) |
+| `p` | DEV_PLAN.md in nvim at the step (or milestone) — its notes (D40) |
 | `y` / `n` | answer the repair prompt, when shown (§7.6) |
 | ↑ / ↓ | move the focus ring row by row (rows are buttons); at a section's edge they scroll it |
 | Esc | focus back to the prompt (Claude Code default) |
@@ -207,7 +208,7 @@ wraps long lines (Code's default) and pages by screen rows, not lines (D35).
   close it if focused, open it otherwise. `/toc keys` installs the key
   bindings; `/toc refresh` forces a reload.
 - **Hotkey `Ctrl+X T`** for `/toc` (D23): a zero-height band button with
-  `action: 'app:toggleReplTab'` (a press doesn't say whether it was a click
+  `action: 'strip:jump1'` (a press doesn't say whether it was a click
   or the chord, so the visible `≡ toc ⌃X T` is a separate button: a click
   closes the pane if it's up, else opens it); `ctrl+x t` bound to it in the **Global**
   context (a `Chat` binding is dead while the pane has focus, so it couldn't
@@ -329,3 +330,6 @@ No file watcher in the mods API, so:
 | D35 | Preview wraps long lines; pages hold what fits once wrapped |
 | D36 | Sidebar stays on the right: the mods dock has no side option |
 | D37 | Commits open as diffs in a delta/lazygit viewer pane, not as files in nvim |
+| D38 | Chord actions must have no engine handler: `strip:jump1-3`, `confirm:previousField`, `permission:toggleDebug` (`app:toggleReplTab` is Claude's tab switch once two panes are open) |
+| D39 | `l`/`h` drill in and out along Plan → Artifacts → Preview |
+| D40 | `p` opens DEV_PLAN.md at the selected step |

@@ -2,7 +2,7 @@
 // repair agent's prompts, and the keybindings toc needs.
 
 import type { Issue } from './plan.ts'
-import { ACTIONS } from './view.ts'
+import { ACTIONS, OLD_ACTIONS } from './view.ts'
 
 export const GRAMMAR = `## M<n> Title           milestone ("chapter"), H2
 - [ ] S<n>.<k> Title    step: checkbox + stable ID + title
@@ -99,11 +99,15 @@ export function mergeKeybindings(text: string | null): { text: string; added: st
   const blocks: Block[] = Array.isArray(doc.bindings) ? doc.bindings : []
   const added: string[] = []
   const conflicts: string[] = []
-  // v0.1 bound ctrl+x t in Chat; move it to Global.
+  // v0.1 bound ctrl+x t in Chat, and used actions the engine handles once
+  // a second pane is open; drop those so the loop below rebinds them.
   for (const block of blocks) {
-    if (block.context === 'Chat' && block.bindings['ctrl+x t'] === ACTIONS.toggle) {
-      delete block.bindings['ctrl+x t']
-      added.push('moved ctrl+x t from Chat to Global')
+    for (const [key, action] of Object.entries(block.bindings)) {
+      const was = typeof action === 'string' ? OLD_ACTIONS[action] : undefined
+      const ours = KEYBINDINGS.find((k) => k.key === key && k.action === ACTIONS[was as keyof typeof ACTIONS])
+      if (!was || !ours) continue
+      delete block.bindings[key]
+      added.push('moved ' + key + ' off ' + action)
     }
   }
   for (const b of KEYBINDINGS) {

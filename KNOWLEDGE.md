@@ -33,7 +33,7 @@ Hard-won facts about the platform. Verified against the docs on 2026-10-10
 ## Spike results (2026-10-10, v2.1.296, verified live in a detached tmux)
 - **Plugin name can't start with `claude-`** (`claude plugin validate`
   refuses it) → the plugin is `toc`; the tool is `mcp__toc__activate`.
-- **Ctrl+X T works**: `Chat` context `"ctrl+x t": "app:toggleReplTab"` + an
+- **Ctrl+X T works** (superseded, see Third user test): `Chat` context `"ctrl+x t": "app:toggleReplTab"` + an
   AbovePrompt Button with `action: 'app:toggleReplTab'` → pressed (S1.4).
   The action must have no engine handler mounted; with `cc-plugin-diff`
   enabled, `app:toggleReplTab`, `app:toggleDiffNoiseFilter`,
@@ -129,3 +129,16 @@ Hard-won facts about the platform. Verified against the docs on 2026-10-10
 - A pane spawned by `tmux split-window` gets tmux's **global** env, which
   can be stale (here `DELTA_FEATURES=+gm-light` while in dark mode): pass
   the theme with `-e` from the mode file. `respawn-pane -k -e` reuses a pane.
+
+## Third user test (2026-10-11)
+- **`app:toggleReplTab` is Claude's "switch tab"**: its engine handler is
+  active in `Global` whenever a second pane (the auto-opened `/diff`) is up,
+  and then wins over a Button's `action` — Ctrl+X T flipped to the Diff tab
+  and toc looked hidden. `app:toggleDiff*` belong to `/diff` too. Actions the
+  binary never handles: `strip:jump1-9`/`strip:*` (listed, filtered out as
+  unavailable), `permission:toggleDebug`, `confirm:previousField`. Verified
+  live with `/diff` open: `strip:jump1-3` press toc's buttons.
+- **`tmux display-message -p -t %gone` exits 0 with empty output** — not an
+  error. Check liveness by the pane echoing its own id (and window).
+- nvim `--remote-tab` takes no `+line`; `--remote-send
+  '<C-\><C-N>:tabedit +N file<CR>'` does it.

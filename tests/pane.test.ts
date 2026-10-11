@@ -60,7 +60,7 @@ function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; sta
       opts.tmux.push(e.argv)
       if (argv === 'tmux display-message -p #{pane_id}') return { value: { exitCode: 0, stdout: '%5\n', stderr: '' } }
       if (argv.startsWith('tmux display-message -p -t %5 ')) return { value: { exitCode: 0, stdout: '@1 200\n', stderr: '' } }
-      if (argv.startsWith('tmux display-message -p -t %9 ')) return { value: { exitCode: 0, stdout: '%9\n', stderr: '' } }
+      if (argv.startsWith('tmux display-message -p -t %9 ')) return { value: { exitCode: 0, stdout: '%9 @1\n', stderr: '' } }
       if (e.argv[1] === 'split-window') return { value: { exitCode: 0, stdout: '%9\n', stderr: '' } }
       if (e.argv[1] === 'respawn-pane' || e.argv[1] === 'select-pane') return { value: { exitCode: 0, stdout: '', stderr: '' } }
       return { value: { exitCode: 1, stdout: '', stderr: 'no server' } }
@@ -349,7 +349,7 @@ test('/toc keys merges keybindings without clobbering the user', async ($, on) =
   const doc = JSON.parse(files['/home/u/.claude/keybindings.json'])
   const global = doc.bindings.find((b) => b.context === 'Global').bindings
   expect(global['meta+k']).toBe('chat:modelPicker')
-  expect(global['meta+j']).toBe('app:toggleDiffNoiseFilter')
+  expect(global['meta+j']).toBe('strip:jump2')
 })
 
 test('the poll redraws when DEV_PLAN.md changes on disk', async ($, on) => {
@@ -379,13 +379,19 @@ test("the repair agent's hand-back is dropped, other peer messages pass", async 
 
 test('/toc keys moves an old Chat ctrl+x t binding to Global', async ($, on) => {
   const files = baseFiles()
-  files['/home/u/.claude/keybindings.json'] = JSON.stringify({ bindings: [{ context: 'Chat', bindings: { 'ctrl+x t': 'app:toggleReplTab' } }] })
+  files['/home/u/.claude/keybindings.json'] = JSON.stringify({ bindings: [
+    { context: 'Chat', bindings: { 'ctrl+x t': 'app:toggleReplTab' } },
+    { context: 'Global', bindings: { 'meta+j': 'app:toggleDiffNoiseFilter', 'meta+x': 'app:toggleDiffPreSession' } },
+  ] })
   host(on, files)
   await start($)
   await $.command.run({ command: 'toc', args: 'keys' })
   const doc = JSON.parse(files['/home/u/.claude/keybindings.json'])
   expect(doc.bindings.find((b) => b.context === 'Chat')).toBeUndefined()
-  expect(doc.bindings.find((b) => b.context === 'Global').bindings['ctrl+x t']).toBe('app:toggleReplTab')
+  const global = doc.bindings.find((b) => b.context === 'Global').bindings
+  expect(global['ctrl+x t']).toBe('strip:jump1') // off app:toggleReplTab: Claude's own tab switch
+  expect(global['meta+j']).toBe('strip:jump2')
+  expect(global['meta+x']).toBe('app:toggleDiffPreSession') // the user's own key, left alone
 })
 
 test('j/k flow across sections; digits jump; f/b page; q closes', async ($, on) => {
@@ -457,7 +463,7 @@ test('the band: a click closes a shown pane; the chord has its own button', asyn
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => $.ui.resolve(e).Text({ children: ['theirs'] }))
   await start($)
   const band = await $.ui.mount({ plugin: 'toc', component: 'AbovePrompt', requestId: 'band', surface: 'terminal', viewport: { columns: 200, rows: 50 }, props: {} })
-  expect((await band.find({ key: 'toc-toggle' })).props.action).toBe('app:toggleReplTab')
+  expect((await band.find({ key: 'toc-toggle' })).props.action).toBe('strip:jump1')
   expect((await band.find({ key: 'toc-click' })).props.action).toBeUndefined()
   await band.press({ key: 'toc-click' })
   expect(closed).toEqual(['toc'])
@@ -493,4 +499,50 @@ test('l unfolds a commit; Enter on one of its files shows just that file of it',
   await ui.press({ key: 'key:o' })
   const split = tmux.find((a) => a[1] === 'split-window')!
   expect(split.join(' ')).toMatch(/git -C \/work\/proj show -M d1741b3\w+ -- dir\/old\.txt$/)
+})
+
+test('a viewer or nvim pane that was closed is not split beside', async ($, on) => {
+  const tmux: string[][] = []
+  const { store } = host(on, baseFiles(), { git: true, tmux })
+  await start($)
+  await store.set('nvimPanes', { '@1': '%45' }) // gone: display-message answers empty
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'key:3' })
+  await ui.press({ key: 'key:j' })
+  await ui.press({ key: 'key:d' })
+  const split = tmux.find((a) => a[1] === 'split-window')!
+  expect(split.slice(2, 7)).toEqual(['-h', '-b', '-l', '50%', '-t'])
+  expect(split[7]).toBe('%5')
+})
+
+test('l drills in: step → Artifacts → commit → Preview; h backs out', async ($, on) => {
+  host(on, baseFiles(), { git: true })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const sec = async () => /(\d)━┥/.exec((await drawn(ui)).join('\n'))![1]
+  await ui.press({ key: 'r:s:S1.2' }) // the step; a click opens Artifacts…
+  await ui.press({ key: 'key:2' })
+  for (const k of ['j', 'j', 'j']) await ui.press({ key: 'key:' + k }) // M1, S1.1, S1.2
+  await ui.press({ key: 'key:l' })
+  expect(await sec()).toBe('3')
+  await ui.press({ key: 'key:j' }) // the open (newest) commit
+  await ui.press({ key: 'key:l' })
+  expect(await sec()).toBe('4')
+  await ui.press({ key: 'key:h' })
+  expect(await sec()).toBe('3')
+  await ui.press({ key: 'key:h' }) // folds the commit
+  await ui.press({ key: 'key:h' }) // then back to Plan
+  expect(await sec()).toBe('2')
+})
+
+test('p opens DEV_PLAN.md at the step', async ($, on) => {
+  const tmux: string[][] = []
+  host(on, baseFiles(), { git: true, tmux })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  for (const k of ['2', 'j', 'j', 'j']) await ui.press({ key: 'key:' + k })
+  await ui.press({ key: 'key:p' })
+  const split = tmux.find((a) => a[1] === 'split-window')!
+  expect(split.slice(-6, -4)).toEqual(['nvim', '--listen'])
+  expect(split.slice(-3)).toEqual(['+4', '+normal! zt', BASE + '/DEV_PLAN.md'])
 })

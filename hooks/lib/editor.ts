@@ -20,8 +20,15 @@ export function aliveArgs(socket: string): string[] {
   return ['nvim', '--server', socket, '--remote-expr', '1']
 }
 
-export function remoteTabArgs(socket: string, path: string): string[] {
-  return ['nvim', '--server', socket, '--remote-tab', path]
+export function remoteTabArgs(socket: string, path: string, line?: number): string[] {
+  if (!line) return ['nvim', '--server', socket, '--remote-tab', path]
+  // --remote-tab takes no +line; drive the running nvim instead.
+  const file = path.replace(/[\\ %#|"]/g, '\\$&').replace(/</g, '<lt>')
+  return ['nvim', '--server', socket, '--remote-send', '<C-\\><C-N>:tabedit +' + line + ' ' + file + '<CR>zt']
+}
+
+export function nvimArgs(socket: string, path: string, line?: number): string[] {
+  return ['nvim', '--listen', socket, ...(line ? ['+' + line, '+normal! zt'] : []), path]
 }
 
 export function selectPaneArgs(pane: string): string[] {
@@ -29,7 +36,13 @@ export function selectPaneArgs(pane: string): string[] {
 }
 
 export function paneAliveArgs(pane: string): string[] {
-  return ['tmux', 'display-message', '-p', '-t', pane, '#{pane_id}']
+  return ['tmux', 'display-message', '-p', '-t', pane, '#{pane_id} #{window_id}']
+}
+
+// display-message exits 0 with empty output for a pane that is gone, so
+// liveness is the pane answering with its own id, in the window we expect.
+export function isPaneAlive(out: string, pane: string, windowId: string): boolean {
+  return out.trim() === pane + ' ' + windowId
 }
 
 // ── the viewer: a diff or lazygit in the left column ────────────────────

@@ -4,7 +4,7 @@
 
 import { parseDiff } from './lib/diff.ts'
 import {
-  aliveArgs, diffViewArgs, lazygitArgs, leftSplitArgs, paneAliveArgs, parseTmuxInfo, remoteTabArgs, respawnArgs, selectPaneArgs, socketPath,
+  aliveArgs, diffViewArgs, isPaneAlive, lazygitArgs, nvimArgs, leftSplitArgs, paneAliveArgs, parseTmuxInfo, remoteTabArgs, respawnArgs, selectPaneArgs, socketPath,
   tmuxInfoArgs, viewerEnv,
 } from './lib/editor.ts'
 import type { ViewTarget } from './lib/editor.ts'
@@ -22,7 +22,7 @@ import type { ArtFile, CtxFile, Data, Effect, Key, Preview, Repair, Target, UI }
 import { parseMode, rolesFor } from './lib/palette.ts'
 import { activeStep, orphanTrailers, parsePlan } from './lib/plan.ts'
 import { REPAIR_SYSTEM, devPlanTemplate, mergeKeybindings, repairTask, rulesBlock, transcriptExcerpt } from './lib/text.ts'
-import { ACTIONS, drawnOrder, render } from './lib/view.ts'
+import { ACTIONS, drawnOrder, isRepairAsk, legendRows, render } from './lib/view.ts'
 
 const PANE = 'toc'
 const PLAN_FILE = 'DEV_PLAN.md'
@@ -92,7 +92,7 @@ function counts(): number[] {
 }
 
 function alloc(): number[] {
-  return allocate(ui, counts(), bodyRows)
+  return allocate(ui, counts(), bodyRows, data ? legendRows(width - 1, isRepairAsk(repair, data)).length : undefined)
 }
 
 // ── data ────────────────────────────────────────────────────────────────
@@ -382,7 +382,7 @@ function syncRing($) {
 }
 
 async function effect($, e: Effect, surface?: string) {
-  if (e.kind === 'open') return openInEditor($, e.path, surface)
+  if (e.kind === 'open') return openInEditor($, e.path, surface, e.line)
   if (e.kind === 'view') return viewDiff($, e.target, surface)
   if (e.kind === 'history') return history($, e.path)
   if (e.kind === 'repair') return e.yes ? startRepair($) : dismissRepair($)
@@ -422,7 +422,7 @@ async function claudeWindow($, fallback: () => Promise<void>) {
 // A pane we started in this window, if it's still there.
 async function livePane($, slot: 'nvimPanes' | 'viewerPanes', windowId: string): Promise<string | null> {
   const known = (((await $.store.get(slot)) ?? {}) as Record<string, string>)[windowId]
-  return known && (await run($, paneAliveArgs(known))).ok ? known : null
+  return known && isPaneAlive((await run($, paneAliveArgs(known))).out, known, windowId) ? known : null
 }
 
 async function keepPane($, slot: 'nvimPanes' | 'viewerPanes', windowId: string, pane: string) {
@@ -430,7 +430,7 @@ async function keepPane($, slot: 'nvimPanes' | 'viewerPanes', windowId: string, 
   await $.store.set(slot, { ...panes, [windowId]: pane })
 }
 
-async function openInEditor($, path: string, surface?: string) {
+async function openInEditor($, path: string, surface?: string, line?: number) {
   const w = await claudeWindow($, async () => {
     await $.ui.copy(surface ? { text: path, surface } : { text: path }).catch(() => undefined)
     $.ui.toast('toc: not in tmux — copied ' + path)
@@ -439,7 +439,7 @@ async function openInEditor($, path: string, surface?: string) {
   const runtime = (await $.env.get('XDG_RUNTIME_DIR')) || '/tmp'
   const sock = socketPath(runtime, w.windowId)
   if ((await run($, aliveArgs(sock))).ok) {
-    const r = await run($, remoteTabArgs(sock, path))
+    const r = await run($, remoteTabArgs(sock, path, line))
     if (!r.ok) $.ui.toast('toc: nvim refused ' + path)
     const known = await livePane($, 'nvimPanes', w.windowId)
     if (known) await run($, selectPaneArgs(known))
@@ -447,7 +447,9 @@ async function openInEditor($, path: string, surface?: string) {
   }
   // nvim goes above the viewer when one is open, else left of Claude.
   const viewer = await livePane($, 'viewerPanes', w.windowId)
-  const split = await run($, leftSplitArgs(w.pane, viewer, true, root ?? base ?? '.', [], ['nvim', '--listen', sock, path]))
+  const cmd = nvimArgs(sock, path, line)
+  let split = await run($, leftSplitArgs(w.pane, viewer, true, root ?? base ?? '.', [], cmd))
+  if (!split.ok && viewer) split = await run($, leftSplitArgs(w.pane, null, true, root ?? base ?? '.', [], cmd))
   if (!split.ok) {
     $.ui.toast('toc: tmux split failed: ' + split.err.trim().slice(0, 80))
     return
@@ -480,7 +482,8 @@ async function inViewer($, cmd: string[], what: string) {
     }
   }
   const nvim = await livePane($, 'nvimPanes', w.windowId)
-  const split = await run($, leftSplitArgs(w.pane, nvim, false, cwd, env, cmd))
+  let split = await run($, leftSplitArgs(w.pane, nvim, false, cwd, env, cmd))
+  if (!split.ok && nvim) split = await run($, leftSplitArgs(w.pane, null, false, cwd, env, cmd))
   if (!split.ok) {
     $.ui.toast('toc: could not open ' + what + ': ' + split.err.trim().slice(0, 80))
     return

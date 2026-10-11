@@ -65,7 +65,7 @@ export type Row =
 
 export type Effect =
   | { kind: 'none' }
-  | { kind: 'open'; path: string }
+  | { kind: 'open'; path: string; line?: number }
   | { kind: 'view'; target: Target }
   | { kind: 'history'; path: string | null }
   | { kind: 'repair'; yes: boolean }
@@ -224,12 +224,12 @@ export function isShown(ui: UI, sec: number): boolean {
 }
 
 // Body rows for each section's content (headers and legend excluded).
-export function allocate(ui: UI, counts: number[], bodyRows: number): number[] {
+export function allocate(ui: UI, counts: number[], bodyRows: number, legendRows = LEGEND_ROWS): number[] {
   const al = ALL.map(() => 0)
-  const keys = !ui.collapsed.includes(KEYS) || ui.zoom === KEYS ? LEGEND_ROWS : 0
+  const keys = !ui.collapsed.includes(KEYS) || ui.zoom === KEYS ? legendRows : 0
   const avail = Math.max(4, bodyRows - SECTIONS.length - keys)
   if (ui.zoom !== null) {
-    al[ui.zoom] = ui.zoom === KEYS ? LEGEND_ROWS : avail
+    al[ui.zoom] = ui.zoom === KEYS ? legendRows : avail
     return al
   }
   al[KEYS] = keys
@@ -288,7 +288,7 @@ export function keepVisible(offset: number, idx: number, alloc: number, n: numbe
 export type Ctx = { data: Data; repair: Repair; alloc: number[]; previewCosts: number[]; preview: Preview | null }
 
 export type Key =
-  | 'j' | 'k' | 'h' | 'l' | 'g' | 'e' | 'o' | 'd' | 'v' | 'z' | 'y' | 'n' | 'q' | 'f' | 'b'
+  | 'j' | 'k' | 'h' | 'l' | 'g' | 'e' | 'o' | 'd' | 'v' | 'p' | 'z' | 'y' | 'n' | 'q' | 'f' | 'b'
   | '1' | '2' | '3' | '4' | '5' | 'pagedown' | 'pageup' | 'prevsec' | 'nextsec'
 
 // Enter a section from the top (its header) or the bottom (its last row).
@@ -345,8 +345,9 @@ export function press(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } 
     if (key === 'pageup') return at(pageBack(costs, off, alloc))
     if (key === 'g') return at(0)
     if (key === 'e') return at(max)
-    if (key === 'h') return { ui: collapse(ui, PREV, true), effect: none }
+    if (key === 'h') return { ui: isShown(ui, PREV) ? { ...ui, sec: ART } : ui, effect: none }
     if (key === 'l' || key === 'o') return { ui: collapse(ui, PREV, false), effect: none }
+    if (key === 'p') return { ui, effect: planLine(ui, c.data) }
     const t = previewTarget(ui, c.data)
     if (key === 'd' && t) return { ui, effect: { kind: 'view', target: t } }
     if (key === 'v' && t) return { ui, effect: historyOf(t, c.data) }
@@ -379,8 +380,26 @@ export function press(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } 
     return { ui, effect: none }
   }
 
+  if (key === 'p') {
+    if (row.kind === 'ms') return { ui, effect: { kind: 'open', path: c.data.planPath, line: c.data.plan?.milestones.find((m) => m.id === row.id)?.line } }
+    if (row.kind === 'step') return { ui, effect: { kind: 'open', path: c.data.planPath, line: row.step.line } }
+    if (sec === ART) return { ui, effect: planLine(ui, c.data) }
+    return { ui, effect: none }
+  }
+
+  // h/l also move along the drill-down: step → its Artifacts → a commit or
+  // file → Preview, and h back out again.
   if (key === 'h' || key === 'l') {
     const folding = key === 'h'
+    const back = (to: number) => ({ ui: { ...ui, sec: to }, effect: none })
+    if (sec === ART && folding && !(row.kind === 'cfile' || (row.kind === 'commit' && row.isOpen))) return back(PLAN)
+    if (sec === ART && !folding && (row.kind === 'cfile' || row.kind === 'file' || (row.kind === 'commit' && row.isOpen))) {
+      return { ui: { ...ui, sec: PREV, zoom: ui.zoom !== null ? PREV : null, collapsed: ui.collapsed.filter((s) => s !== PREV) }, effect: none }
+    }
+    if (!folding && (row.kind === 'step' || row.kind === 'unattr')) {
+      const id = row.kind === 'step' ? row.step.id : UNATTRIBUTED
+      return { ui: { ...followStep(ui, row), step: id, sec: ART, zoom: ui.zoom !== null ? ART : null, collapsed: ui.collapsed.filter((s) => s !== ART) }, effect: none }
+    }
     if (row.kind === 'ms') return { ui: { ...ui, fold: { ...ui.fold, [row.id]: folding } }, effect: none }
     if (row.kind === 'step' && folding) {
       const next = { ...ui, fold: { ...ui.fold, [row.step.milestone]: true } }
@@ -423,6 +442,13 @@ export function press(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } 
     if (row.kind === 'ctx' && row.file.exists) return { ui, effect: { kind: 'history', path: row.file.path } }
   }
   return { ui, effect: none }
+}
+
+// The selected step's line in DEV_PLAN.md, where its notes live.
+function planLine(ui: UI, data: Data): Effect {
+  const id = selectedStep(ui, data)
+  const step = id && data.plan ? findStep(data.plan, id) : null
+  return step ? { kind: 'open', path: data.planPath, line: step.line } : { kind: 'none' }
 }
 
 // lazygit: a commit opens the log; a file opens that file's history.
