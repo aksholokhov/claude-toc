@@ -118,3 +118,28 @@ export function relativeTo(root: string, abs: string): string {
   const r = root.endsWith('/') ? root : root + '/'
   return abs.startsWith(r) ? abs.slice(r.length) : abs
 }
+
+// `git commit` → `git commit --trailer 'Plan-Step: <id>'` (git ≥ 2.32), for
+// every commit in a Bash command line; untouched when it already names a step.
+const COMMIT_RE = /\bgit((?:\s+-[cC]\s+(?:'[^']*'|"[^"]*"|\S+))*)\s+commit(?![-\w])/g
+
+export function withTrailer(command: string, stepId: string): string {
+  if (command.includes(TRAILER + ':')) return command
+  return command.replace(COMMIT_RE, (_m, opts) => `git${opts} commit --trailer '${TRAILER}: ${stepId}'`)
+}
+
+export function supportsTrailer(versionOut: string): boolean {
+  const m = /(\d+)\.(\d+)/.exec(versionOut)
+  if (!m) return false
+  const [maj, min] = [Number(m[1]), Number(m[2])]
+  return maj > 2 || (maj === 2 && min >= 32)
+}
+
+// Files a command changed: new status entries, or listed ones whose mtime moved.
+export type Snapshot = Map<string, string>
+
+export function changedBetween(before: Snapshot, after: Snapshot): string[] {
+  const out: string[] = []
+  for (const [path, sig] of after) if (before.get(path) !== sig) out.push(path)
+  return out
+}

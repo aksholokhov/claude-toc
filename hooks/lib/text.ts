@@ -31,7 +31,7 @@ ${GRAMMAR}
 export function rulesBlock(planPath: string): string {
   return `The toc sidebar is showing ${planPath}. Keep that file in this grammar so it renders:
 ${GRAMMAR}
-Rules: step IDs are stable (never renumber or reuse; reorder freely). Keep exactly one step [~] while you work on it and flip it to [x] when done (or [-] if dropped); start the next step by marking it [~]. Titles fit a 40-column sidebar: <= 28 chars, put detail in indented sub-bullets. Commits you make while a step is [~] get a "Plan-Step: <id>" trailer automatically; don't add it yourself.`
+Rules: step IDs are stable (never renumber or reuse; reorder freely). Keep exactly one step [~] while you work on it and flip it to [x] when done (or [-] if dropped); start the next step by marking it [~]. Titles fit a 40-column sidebar: <= 28 chars, put detail in indented sub-bullets. While a step is [~], toc adds --trailer 'Plan-Step: <id>' to your git commit commands; don't add that trailer yourself. Edits you make are logged against the [~] step, so mark the step before you start on it.`
 }
 
 export const REPAIR_SYSTEM = `You repair a project's DEV_PLAN.md so the claude-toc sidebar can parse it again.

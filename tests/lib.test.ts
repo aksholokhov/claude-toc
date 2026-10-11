@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { diffPage, diffRows, parseDiff, sourcePage } from '../hooks/lib/diff.ts'
-import { commitsByStep, fileState, parseLog, parseStatus, relativeTo, renamedTo } from '../hooks/lib/git.ts'
+import { changedBetween, commitsByStep, fileState, parseLog, parseStatus, relativeTo, renamedTo, supportsTrailer, withTrailer } from '../hooks/lib/git.ts'
 import { appendEntry, editedPath, filesByStep, parseLedger } from '../hooks/lib/ledger.ts'
 import { parseMode, rolesFor } from '../hooks/lib/palette.ts'
 import { LOG, SHOW, STATUS } from './fixtures/git.ts'
@@ -80,4 +80,23 @@ test('palette follows the mode file and falls back to theme keys', () => {
   expect(rolesFor('dark').done).toBe('#a9b665')
   expect(rolesFor('light').done).toBe('#6c782e')
   expect(rolesFor(null).done).toBe('success')
+})
+
+test('withTrailer rewrites every git commit, and only commits', () => {
+  expect(withTrailer('git add . && git commit -m "x"', 'S1.2')).toBe(`git add . && git commit --trailer 'Plan-Step: S1.2' -m "x"`)
+  expect(withTrailer('git -C /r commit -am x', 'S1.2')).toBe(`git -C /r commit --trailer 'Plan-Step: S1.2' -am x`)
+  expect(withTrailer('git -c user.name=x commit --amend --no-edit', 'S3.1')).toBe(`git -c user.name=x commit --trailer 'Plan-Step: S3.1' --amend --no-edit`)
+  expect(withTrailer('git commit-tree abc', 'S1.1')).toBe('git commit-tree abc')
+  expect(withTrailer('git log --grep commit', 'S1.1')).toBe('git log --grep commit')
+  expect(withTrailer("git commit -m 'a' -m 'Plan-Step: S9.9'", 'S1.1')).toBe("git commit -m 'a' -m 'Plan-Step: S9.9'")
+  expect(withTrailer('echo hi', 'S1.1')).toBe('echo hi')
+})
+
+test('supportsTrailer and changedBetween', () => {
+  expect(supportsTrailer('git version 2.43.0')).toBe(true)
+  expect(supportsTrailer('git version 2.31.1')).toBe(false)
+  expect(supportsTrailer('git version 3.0.0')).toBe(true)
+  const before = new Map([['a', '?? 1'], ['b', ' M 5']])
+  const after = new Map([['a', '?? 1'], ['b', ' M 9'], ['c', '?? 2']])
+  expect(changedBetween(before, after)).toEqual(['b', 'c'])
 })

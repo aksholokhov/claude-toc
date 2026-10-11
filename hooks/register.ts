@@ -5,8 +5,10 @@
 import { parseDiff } from './lib/diff.ts'
 import { aliveArgs, paneAliveArgs, parseTmuxInfo, remoteTabArgs, selectPaneArgs, socketPath, splitArgs, tmuxInfoArgs } from './lib/editor.ts'
 import {
-  commitsByStep, diffArgs, fileState, logArgs, parseLog, parseStatus, relativeTo, rootArgs, showArgs, statusArgs, TRAILER,
+  changedBetween, commitsByStep, diffArgs, fileState, logArgs, parseLog, parseStatus, relativeTo, rootArgs, showArgs, statusArgs,
+  supportsTrailer, withTrailer,
 } from './lib/git.ts'
+import type { Snapshot } from './lib/git.ts'
 import { appendEntry, editedPath, filesByStep, LEDGER_FILE, parseLedger, WRITE_TOOLS } from './lib/ledger.ts'
 import {
   ART, PLAN, PREV, UNATTRIBUTED, allocate, fileRowIndex, focusRow, initialUI, isShown, joinPath, planSignature,
@@ -41,6 +43,7 @@ let bodyRows = 30
 let lastFocus: string | null = null
 let refreshing = false
 let again = false
+let trailerOk: boolean | null = null
 
 // ── small helpers ───────────────────────────────────────────────────────
 
@@ -214,6 +217,43 @@ async function poll($) {
   if (s !== stamp) await refresh($)
 }
 
+// ── ledger ──────────────────────────────────────────────────────────────
+
+async function activeStepId($): Promise<string | null> {
+  if (!base) return null
+  const text = await readText($, abs(base, PLAN_FILE))
+  const step = text ? activeStep(parsePlan(text)) : null
+  return step ? step.id : null
+}
+
+async function record($, paths: string[]) {
+  if (!base || !paths.length) return
+  const scope = root ?? base
+  // Knowledge files have their own section; logging them would only fill
+  // the unattributed bucket with plan edits.
+  const known = new Set((data?.context ?? []).map((c) => c.path).concat(abs(base, PLAN_FILE)))
+  const keep = paths.filter((p) => under(scope, p) && !under(abs(base!, '.toc'), p) && !known.has(p))
+  if (!keep.length) return
+  const step = await activeStepId($)
+  const ledgerPath = abs(base, LEDGER_FILE)
+  let text = (await readText($, ledgerPath)) ?? ''
+  const ts = await $.clock.now()
+  const session = await $.session.id()
+  for (const path of keep) text = appendEntry(text, { ts, path, step, session })
+  await $.fs.write(ledgerPath, text)
+}
+
+// git status plus mtimes: what a Bash command changed shows up as a new
+// entry or a moved mtime.
+async function snapshot($): Promise<Snapshot | null> {
+  if (!root) return null
+  const st = await run($, statusArgs(root), root)
+  if (!st.ok) return null
+  const snap: Snapshot = new Map()
+  for (const [rel, code] of parseStatus(st.out)) snap.set(rel, code + ' ' + (await mtime($, abs(root, rel))))
+  return snap
+}
+
 // ── activation & scaffolding ────────────────────────────────────────────
 
 async function activate($, dir: string, opts: { create: boolean }): Promise<string> {
@@ -266,7 +306,10 @@ async function activate($, dir: string, opts: { create: boolean }): Promise<stri
 }
 
 async function openPane($, focus: boolean) {
-  await $.ui.open(focus ? { id: PANE, title: 'toc', columns: COLUMNS, focus: true } : { id: PANE, title: 'toc', columns: COLUMNS })
+  // rows only matters inline (narrow terminal): a third of the screen is too
+  // little for a plan.
+  const pane = { id: PANE, title: 'toc', columns: COLUMNS, rows: 26 }
+  await $.ui.open(focus ? { ...pane, focus: true } : pane)
 }
 
 async function togglePane($) {
@@ -411,6 +454,10 @@ async function startRepair($) {
     $.ui.toast('toc: repair could not start: ' + (r.deny ?? 'no agent'))
   } else {
     repairAgent = r.agentId
+    // Kept in the store too: a reload between spawn and hand-back would
+    // otherwise forget it and let the report cost a main-model turn.
+    const kept = ((await $.store.get('repairAgents')) ?? []) as string[]
+    await $.store.set('repairAgents', [...kept, r.agentId].slice(-20))
   }
   $.ui.invalidate('ui.render')
 }
@@ -438,6 +485,7 @@ export function register(on) {
       description:
         'Show the toc sidebar for a project folder that holds (or should hold) DEV_PLAN.md: knowledge files, plan progress, and per-step commits and files. Idempotent; creates DEV_PLAN.md from a template only if missing. Call it once you know the project folder, e.g. after writing or finding a DEV_PLAN.md.',
       inputSchema: { type: 'object', properties: { dir: { type: 'string', description: 'Project folder, absolute or relative to the working directory' } }, required: ['dir'] },
+      isDeferred: false,
     })
     await $.command.register({ name: 'toc', description: 'Show or hide the toc sidebar (also: /toc keys, /toc refresh)', argumentHint: '[keys|refresh]', immediate: true })
     await $.command.register({ name: 'project', description: 'Point the toc sidebar at a project folder and scaffold DEV_PLAN.md', argumentHint: '[dir]' })
@@ -480,7 +528,8 @@ export function register(on) {
       }
     }
     const msg = await activate($, arg || '.', { create: true })
-    if (base) await openPane($, true)
+    // Unfocused: the next thing typed is usually a prompt, not panel keys.
+    if (base) await openPane($, false)
     return { text: msg }
   })
 
@@ -496,30 +545,36 @@ export function register(on) {
     return { ...r, blocks: [...r.blocks, { name: 'toc', text: rulesBlock(abs(base, PLAN_FILE)) }] }
   })
 
-  on('attribution.text', { kind: 'commit' }, async ($, e, next) => {
-    const r = await next(e)
-    if (!base) return r
-    const text = await readText($, abs(base, PLAN_FILE))
-    const step = text ? activeStep(parsePlan(text)) : null
-    if (!step) return r
-    const line = TRAILER + ': ' + step.id
-    if (r.text.includes(line)) return r
-    return { text: r.text ? r.text + '\n' + line : line }
-  })
+  // Claude's commits carry the in-progress step: git adds the trailer itself,
+  // so it doesn't depend on the model following an instruction (SPEC §6.1).
+  // The same hook snapshots git status around the command so files a Bash
+  // command creates or edits reach the ledger too (SPEC §6.2).
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    if (!base || !root) return next(e)
+    const command = String(e.command ?? '')
+    let ev = e
+    if (/\bgit\b/.test(command) && /\bcommit\b/.test(command)) {
+      if (trailerOk === null) trailerOk = supportsTrailer((await run($, ['git', '--version'])).out)
+      const step = trailerOk ? await activeStepId($) : null
+      if (step) {
+        const rewritten = withTrailer(command, step)
+        if (rewritten !== command) ev = { ...e, command: rewritten }
+      }
+    }
+    const before = await snapshot($)
+    const result = await next(ev)
+    const after = before ? await snapshot($) : null
+    if (before && after) await record($, changedBetween(before, after).map((rel) => abs(root!, rel)))
+    await refresh($)
+    return result
+  }).catch(($, e, next) => next(e))
 
   on('classic.PostToolUse', async ($, e, next) => {
     const result = await next(e)
     if (!base || !WRITE_TOOLS.includes(e.tool_name)) return result
     const raw = editedPath(e.tool_input)
     if (!raw) return result
-    const path = abs(e.cwd ?? (await $.session.cwd()), raw)
-    const scope = root ?? base
-    if (!under(scope, path) || under(abs(base, '.toc'), path)) return result
-    const text = await readText($, data?.planPath ?? abs(base, PLAN_FILE))
-    const step = text ? activeStep(parsePlan(text)) : null
-    const ledgerPath = abs(base, LEDGER_FILE)
-    const cur = (await readText($, ledgerPath)) ?? ''
-    await $.fs.write(ledgerPath, appendEntry(cur, { ts: await $.clock.now(), path, step: step ? step.id : null, session: await $.session.id() }))
+    await record($, [abs(e.cwd ?? (await $.session.cwd()), raw)])
     await refresh($)
     return result
   }).catch(($, e, next) => next(e))
@@ -537,15 +592,16 @@ export function register(on) {
     return r
   })
 
-  // The repair agent's completion would otherwise cost a main-model turn.
+  // The repair agent's report reaches the main model as a peer message
+  // (<agent-message from="<agentId>">); swallow it so a repair costs no
+  // main-model turn. The toast already told the person what changed.
   on('prompt.submit', async ($, e, next) => {
-    if (repairAgent === null && e.origin && e.origin.kind === 'task-notification' && /toc:repair|repair DEV_PLAN\.md/.test(e.text ?? '')) {
-      return { drop: 'toc handled its repair agent' }
-    }
-    if (repairAgent && e.origin && e.origin.kind === 'task-notification' && (e.text ?? '').includes(repairAgent)) {
-      return { drop: 'toc handled its repair agent' }
-    }
-    return next(e)
+    const from = /<agent-message from="([^"]+)"/.exec(String(e.text ?? ''))
+    if (!from) return next(e)
+    const kept = ((await $.store.get('repairAgents')) ?? []) as string[]
+    if (!kept.includes(from[1])) return next(e)
+    await $.store.set('repairAgents', kept.filter((id) => id !== from[1]))
+    return { drop: 'toc: the plan repair already reported in the sidebar' }
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
