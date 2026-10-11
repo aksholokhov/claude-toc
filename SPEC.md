@@ -177,7 +177,7 @@ from a focused pane. `/toc keys` merges those bindings into
 |---|---|
 | `j` / `k` | cursor down / up; past a section's end they flow into the next/previous section (Preview: one line) |
 | `f` / `b` | page down / up (also `⌥j`/`⌥k`, PgDn/PgUp and the wheel) |
-| `1`–`4` | jump to Context / Plan / Artifacts / Preview (also `⌥h`/`⌥l` prev/next) |
+| `1`–`5` | jump to Context / Plan / Artifacts / Preview / Keys (also `⌥h`/`⌥l` prev/next) |
 | `q` | close the sidebar |
 | `h` / `l` | fold / unfold: milestone, commit, or the section on its header |
 | `z` | zoom the focused section to the full pane; again to restore |
