@@ -63,3 +63,31 @@ Hard-won facts about the platform. Verified against the docs on 2026-10-10
 - `Code` with `format: 'diff'` needs whole hunks ("a diff cut mid-hunk does
   not parse") → pages carry synthetic `@@` headers.
 - Text `color` accepts hex strings as well as theme keys.
+
+## Build findings (2026-10-10)
+- **`attribution.text` doesn't put anything in the commit.** It rewrites the
+  attribution *instructions* the model reads; Haiku dropped our Plan-Step
+  line (our own rules also said "don't add it yourself"). Deterministic fix:
+  a `tool.call` hook on Bash rewriting `git commit` → `git commit --trailer
+  'Plan-Step: <id>'` (git ≥ 2.32).
+- Claude often creates files **via Bash**, not Write — PostToolUse on
+  Write/Edit misses them. A git-status+mtime snapshot around each Bash call
+  catches them.
+- A background subagent's report reaches the main model as `prompt.submit`
+  with `origin.kind: 'peer'` and text `<agent-message from="<agentId>">…`;
+  `{ drop }` there saves the main-model turn. Keep the IDs in `$.store`: a
+  hot reload between spawn and hand-back wipes module variables.
+- `Ctrl+X Tab` only reaches the band, not the pane; `focus: true` on
+  `$.ui.open` (from a command or a press) is the reliable way in.
+- A pane opened with focus eats the next letters typed (they're hotkeys), so
+  `/project` opens it unfocused.
+- When `/diff`'s pane auto-opens (Claude edited files, terminal ≥ 144 cols),
+  toc's pane becomes a tab behind it; `$.ui.open` again raises it.
+- Test kit: a stub can't hand back an `agentId` from `agent.spawn` (only
+  core assigns one), and `$.ui.focus` has no stub ("no implementation for
+  ui.focus") — both verified live instead. `agent.spawn` reaches the stub
+  shaped as the Agent tool call (`subagent_type`, `run_in_background`).
+- `Code` with `format: 'diff'` draws no row for the `@@` header, so a page of
+  N diff lines is N rows.
+- In a detached `tmux -f /dev/null` server colors come out as 256-color
+  approximations; real terminals with Tc get the hex palette.

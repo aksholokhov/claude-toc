@@ -58,71 +58,75 @@ green. Decision refs (`D#`) point into SPEC.md §11.
   - dup-id, multi-doing, bad-marker, orphan-trailer
 
 ## M3 Activation
-- [~] S3.1 /project [dir] command
+- [x] S3.1 /project [dir] command
   - asks via Input when dir omitted
-- [ ] S3.2 activate tool for Claude
+- [x] S3.2 activate tool for Claude
   - mcp__claude-toc__activate({dir}); D19
-- [ ] S3.3 Scaffold .toc + exclude
+- [x] S3.3 Scaffold .toc + exclude
   - idempotent; .git/info/exclude; never overwrite
-- [ ] S3.4 Remember cwd → base dir
+- [x] S3.4 Remember cwd → base dir
   - $.store; re-activate on session.start + classic.SessionStart
-- [ ] S3.5 Inject format context
+- [x] S3.5 Inject format context
   - ≈150 tokens, only while active (D17)
 
 ## M4 Sidebar render
-- [ ] S4.1 Palette from theme mode
+- [x] S4.1 Palette from theme mode
   - mirror palette.lua; fallback to theme keys
-- [ ] S4.2 Context section
-- [ ] S4.3 Plan section + folding
+  - light mode not yet seen live
+- [x] S4.2 Context section
+- [x] S4.3 Plan section + folding
   - auto-fold done milestones; expand the [~] one
-- [ ] S4.4 Cursor + vim hotkeys
+- [x] S4.4 Cursor + vim hotkeys
   - j k h l g e 1 2 3 o d f; footer legend
-- [ ] S4.5 Refresh: events + poll
+- [x] S4.5 Refresh: events + poll
   - turn.complete, PostToolUse, 2s mtime poll
-- [ ] S4.6 Width / truncation pass
+- [x] S4.6 Width / truncation pass
   - 30–60 cols; dock and inline placements
-- [ ] S4.7 Collapse + zoom sections
+- [x] S4.7 Collapse + zoom sections
   - D27: h/l on header; z zoom; 1-line summaries
-- [ ] S4.8 Paging + section jumps
+- [x] S4.8 Paging + section jumps
   - J/K page, H/L prev/next section
 
 ## M5 Attribution
-- [ ] S5.1 Ledger PostToolUse hook
+- [x] S5.1 Ledger PostToolUse hook
   - Write/Edit/NotebookEdit → ledger.jsonl
-- [ ] S5.2 Plan-Step commit trailer
-  - attribution.text, only while a step is [~]
-- [ ] S5.3 Git queries
+  - + Bash edits via git-status snapshot
+- [x] S5.2 Plan-Step commit trailer
+  - attribution.text failed live (model drops it)
+  - now: Bash git commit → --trailer rewrite
+- [x] S5.3 Git queries
   - log by trailer, numstat, status porcelain
-- [ ] S5.4 Artifacts section
+- [x] S5.4 Artifacts section
   - notes, commits, files A/M/✓, unattributed
-- [ ] S5.5 Paged full-diff preview
+- [x] S5.5 Paged full-diff preview
   - D26: own section; native Code; 100k cap
-- [ ] S5.6 Fold commits to files
+- [x] S5.6 Fold commits to files
   - D25: h/l; newest open; per-file numstat
 
 ## M6 Editor pane
-- [ ] S6.1 tmux split by width
+- [x] S6.1 tmux split by width
   - ≥220 cols left, else below (D20)
-- [ ] S6.2 nvim per tmux window
+- [x] S6.2 nvim per tmux window
   - socket keyed by window id; --remote-tab
-- [ ] S6.3 Diff tab for commit/file
-- [ ] S6.4 Fallback outside tmux
+- [x] S6.3 Diff tab for commit/file
+- [x] S6.4 Fallback outside tmux
   - toast + $.ui.copy(path)
 
 ## M9 Plan repair
-- [ ] S9.1 Repair prompt in pane
+- [x] S9.1 Repair prompt in pane
   - D28: [y]/[n], issues listed, n until change
-- [ ] S9.2 Haiku repair subagent
+- [x] S9.2 Haiku repair subagent
   - contract + issues + file + session excerpt
-- [ ] S9.3 Backup + trailer-safe IDs
+- [x] S9.3 Backup + trailer-safe IDs
   - .toc/DEV_PLAN.md.bak; never touch trailer IDs
-- [ ] S9.4 Broken-plan fixtures
+- [x] S9.4 Broken-plan fixtures
   - one per issue code; repair is idempotent
 
 ## M7 Dogfood & ship
-- [ ] S7.1 Dogfood on this repo
-- [ ] S7.2 README + screenshots
-- [ ] S7.3 Record KNOWLEDGE findings
+- [~] S7.1 Dogfood on this repo
+  - waiting on the user's test batch
+- [x] S7.2 README + screenshots
+- [x] S7.3 Record KNOWLEDGE findings
 - [ ] S7.4 GitHub remote + tag v0.1
 
 ## M8 Later

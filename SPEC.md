@@ -31,7 +31,9 @@ Non-goals (v1)
 ## 2. Platform (D1, D12)
 
 - A **Claude Code plugin containing a mod** (TypeScript hooks module), in
-  `~/claude-toc`, the repo doubling as a one-plugin marketplace.
+  `~/claude-toc`, the repo doubling as a one-plugin marketplace. The plugin is
+  named **`toc`** (`claude plugin validate` refuses names starting with
+  `claude-`); the marketplace is `claude-toc`.
 - Requires Claude Code ≥ 2.1.287 (mods GA) and `"tui": "fullscreen"` for the
   docked sidebar; in a narrow terminal the pane falls back to Claude's inline
   placement above the prompt.
@@ -138,14 +140,24 @@ toc:
 
 ### 6.1 Commits (D4, D13)
 - The trailer `Plan-Step: S2.2` is the contract.
-- The mod's `attribution.text` hook appends it to commits Claude makes while
-  a step is `[~]`. Manual commits are attributed only if you type the trailer.
+- While a step is `[~]`, the mod's `tool.call` hook on **Bash** rewrites each
+  `git commit` in the command to `git commit --trailer 'Plan-Step: <id>'`
+  (git ≥ 2.32; checked once), so git writes the trailer itself. The first
+  design used `attribution.text`, but that only changes the *instructions* the
+  model reads; Haiku dropped the line in a live test. Manual commits are
+  attributed only if you type the trailer.
 - Lookup: every commit in the repo with a matching trailer (no path filter —
   D18).
 
 ### 6.2 Uncommitted / untracked files (D5)
 - The mod hooks `classic.PostToolUse` for Write/Edit/NotebookEdit and appends
   `{ts, path, step, session}` to `<base>/.toc/ledger.jsonl`.
+- Files a **Bash** command changes are caught by snapshotting `git status`
+  plus mtimes around the command (same `tool.call` hook): new entries or moved
+  mtimes are logged. A file created and committed in the same command shows up
+  through its commit instead.
+- The knowledge files (Context section) and anything under `.toc/` are never
+  logged.
 - No `[~]` step → `step: null` → shown in an "unattributed" bucket.
 - `.toc/` is excluded via `.git/info/exclude` (no tracked file touched).
 - Display status comes from git at render time: untracked → `A`,
@@ -153,41 +165,42 @@ toc:
 
 ## 7. Interaction
 
-### 7.1 Keys, while the pane is focused (D12, D24)
-Mods receive single lowercase-letter/digit button hotkeys natively. Uppercase
-keys go through a documented side door: a Button's `action:` names a built-in
-keybinding action, and the user's **modified-key** binding for that action
-presses the button. A one-time `/toc keys` merges `shift+j/k/h/l` into the
-`Pane` context of `~/.claude/keybindings.json` after showing the diff (later:
-dotfiles bootstrap does it). Proven or rejected by spike S1.7. Arrows, Tab,
-Enter, PgUp/PgDn, Home/End and Esc stay Claude Code's.
+### 7.1 Keys (D12, D24)
+Mods receive single lowercase-letter/digit button hotkeys natively, lowercased
+on keydown — so Shift+J *is* `j`. Uppercase keys are impossible; the spike
+(S1.7) found that **Alt+letter bound in the `Global` context** presses a
+Button through its `action` (a spare built-in action), from the prompt and
+from a focused pane. `/toc keys` merges those bindings into
+`~/.claude/keybindings.json`, never overriding a key the user already bound.
 
 | Key | Action |
 |---|---|
-| `j` / `k` | cursor down / up within the focused section (preview: one line) |
-| `J` / `K` | page down / up within the focused section (long Plan, Preview) |
-| `H` / `L` | focus previous / next section |
-| `h` / `l` | fold / unfold: milestone, commit, or the section itself on its header |
+| `j` / `k` | cursor down / up within the focused section (Preview: one line) |
+| `⌥j` / `⌥k` | page down / up (also PgDn/PgUp and the wheel, via `ui.scroll`) |
+| `⌥h` / `⌥l` | focus previous / next section |
+| `h` / `l` | fold / unfold: milestone, commit, or the section on its header |
 | `z` | zoom the focused section to the full pane; again to restore |
-| `g` / `e` | top / end of section |
+| `g` / `e` | top (section header) / end of section |
 | `o`, Enter | open: file → nvim tab; step → its Artifacts; commit → Preview |
 | `d` | open the selected commit/file diff in nvim (full, untruncated) |
 | `y` / `n` | answer the repair prompt, when shown (§7.6) |
+| ↑ / ↓ | move the focus ring row by row (rows are buttons); at a section's edge they scroll it |
 | Esc | focus back to the prompt (Claude Code default) |
 
-Fallback if the shift side door fails the spike: `J`/`K` → PgDn/PgUp (native
-pane scroll), `H`/`L` → `1`–`4` section digits.
-
-A footer row of plain buttons doubles as the key legend.
+The cursor is the focus ring: every row starts with a one-cell button, so a
+click selects a row and Enter opens it. Artifacts and Preview follow the
+cursor live. A footer row of plain buttons doubles as the key legend.
 
 ### 7.2 Commands and tool (D16, D19, D21)
-- `/project [dir]` — activate for `dir` (asks if omitted): scaffold, remember,
-  open the pane.
-- `/toc` — immediate command: show/hide/focus the pane, works mid-turn.
-- **Hotkey `Ctrl+X T`** for `/toc` (D23): a small band button with `action:`
-  bound to a spare built-in keybinding action; `ctrl+x t` bound to it in
-  `~/.claude/keybindings.json`. **Must be prototyped first**; fallback is a
-  band digit hotkey (type `0` on an empty prompt and pause).
+- `/project [dir]` — activate for `dir`: scaffold, remember, open the pane
+  **unfocused** (the next thing typed is usually a prompt). Without `dir` it
+  uses the working directory if it already has a DEV_PLAN.md, else explains.
+- `/toc` — immediate command: focus the pane if it's open but unfocused,
+  close it if focused, open it otherwise. `/toc keys` installs the key
+  bindings; `/toc refresh` forces a reload.
+- **Hotkey `Ctrl+X T`** for `/toc` (D23): a band button `≡ toc ⌃X T` with
+  `action: 'app:toggleReplTab'`; `ctrl+x t` bound to it in the `Chat`
+  context. Proven in the S1.4 spike. (`Ctrl+X Tab` only reaches the band.)
 - Tool `mcp__claude-toc__activate({dir})` — the same activation; Claude may
   call it freely (e.g. after creating or finding a `DEV_PLAN.md`).
 
@@ -228,7 +241,11 @@ A footer row of plain buttons doubles as the key legend.
   commit trailer; minimal edits; report what it changed in one line.
 - `n` dismisses the prompt until the file changes again. The red header
   stays.
-- Cost: one Haiku run on your plan's usage, only on `y`.
+- Cost: one Haiku run on your plan's usage, only on `y`. The agent's report
+  would normally reach the main model as a peer message
+  (`<agent-message from="<id>">`) and cost a main-model turn; the mod drops it
+  in `prompt.submit` (agent IDs kept in `$.store`, so a reload can't lose
+  them) and shows a toast instead.
 
 ## 8. Refresh
 
@@ -263,7 +280,7 @@ No file watcher in the mods API, so:
 | D5 | Uncommitted files via PostToolUse ledger; one `[~]` at a time |
 | D8 | One dedicated nvim per tmux window; tabs per file |
 | D12 | Host = native Claude Code mod sidebar; nvim full view later |
-| D13 | Trailer auto-added to Claude's commits only (`attribution.text`) |
+| D13 | Trailer added to Claude's commits only, by rewriting `git commit` → `--trailer` (was `attribution.text`; the model ignored it) |
 | D14 | Preview both in-pane and in nvim |
 | D15 | Encoding as in §4 mockup |
 | D16 | `/project` scaffolds `.toc/` + missing DEV_PLAN.md only; no CLAUDE.md |
@@ -274,9 +291,11 @@ No file watcher in the mods API, so:
 | D21 | `/project [dir]`, `/toc`, `mcp__claude-toc__activate` |
 | D22 | nvim keyed per tmux window |
 | D23 | `/toc` hotkey `Ctrl+X T` via borrowed action (prototype; fallback `0`) |
-| D24 | `J`/`K` page, `H`/`L` switch section, via shift bindings → Button `action` (spike) |
+| D24 | Page/section keys are `⌥j/⌥k/⌥h/⌥l` (Global Alt bindings → Button `action`); Shift can't work |
 | D25 | Commits fold to their files with `h`/`l`; replaces the `f` key |
 | D26 | Preview = whole diff, native `Code` element, paged; `d` for full nvim diff |
 | D27 | Sections collapse to one-line summaries; `z` zooms one section |
 | D28 | Broken plan → `[y]/[n]` repair prompt in the pane |
-| D29 | Repair = Haiku subagent via `$.agent.spawn`, Edit tool, backup first |
+| D29 | Repair = Haiku subagent via `$.agent.spawn`, Edit tool, backup first; its hand-back is dropped |
+| D30 | Bash edits reach the ledger through a git-status snapshot around the command |
+| D31 | `/project` and the tool open the pane unfocused; `/toc` and `Ctrl+X T` focus it |
