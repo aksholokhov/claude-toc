@@ -132,10 +132,10 @@ function summary(v: ViewInput, sec: number): { text: string; color: string } {
     return { text: '⇡' + c + ' +' + f, color: roles.accent }
   }
   const total = previewTotal(v)
-  const h = Math.max(1, v.alloc[PREV])
+  const h = Math.max(1, v.alloc[PREV] - 1)
   if (!total) return { text: '', color: roles.dim }
   return isShown(ui, PREV)
-    ? { text: Math.floor(ui.previewOffset / h) + 1 + '/' + Math.max(1, Math.ceil(total / h)), color: roles.dim }
+    ? { text: Math.min(Math.ceil(total / h), Math.floor(ui.previewOffset / h) + 1) + '/' + Math.max(1, Math.ceil(Math.max(1, total - 1) / h)), color: roles.dim }
     : { text: total + ' rows', color: roles.dim }
 }
 
@@ -159,9 +159,9 @@ function rowView(v: ViewInput, sec: number, r: Row) {
       const { done, live } = progress(m.steps)
       const complete = isComplete(m)
       const active = isActive(m)
-      const style = complete ? { color: roles.done, dimColor: true } : active ? { color: roles.doing, bold: true } : { color: roles.strong, bold: true }
+      const style = complete ? { color: roles.doneDim } : active ? { color: roles.doing, bold: true } : { color: roles.strong, bold: true }
       const glyph = isFolded(ui, plan, m.id) ? '▸ ' : '▾ '
-      return right(glyph + m.id + ' ' + m.title, done + '/' + live + (complete ? ' ✓' : '  '), style, complete ? { color: roles.done, dimColor: true } : { color: roles.dim })
+      return right(glyph + m.id + ' ' + m.title, done + '/' + live + (complete ? ' ✓' : '  '), style, complete ? { color: roles.doneDim } : { color: roles.dim })
     }
     case 'step': {
       const s = r.step
