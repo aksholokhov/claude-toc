@@ -25,38 +25,40 @@ green. Decision refs (`D#`) point into SPEC.md §11.
   - https://claude.ai/artifact/QmMT28HLWoquxhVkfdNAk9
 
 ## M1 Skeleton & spikes
-- [ ] S1.1 Plugin + marketplace json
+- [x] S1.1 Plugin + marketplace json
   - .claude-plugin/{plugin,marketplace}.json, hooks/hooks.json
-- [ ] S1.2 Pull types for this build
+- [x] S1.2 Pull types for this build
   - use the d.ts Claude Code writes, not GitHub's
-- [ ] S1.3 /toc opens an empty pane
+- [x] S1.3 /toc opens an empty pane
   - immediate: true; columns ≈ 40; check dock vs inline
-- [ ] S1.4 Spike: Ctrl+X T hotkey
+- [x] S1.4 Spike: Ctrl+X T hotkey
+  - works: Chat ctrl+x t → app:toggleReplTab
   - D23: band Button action= spare built-in action
   - verify no side effect; else fallback band digit `0`
-- [ ] S1.5 Test harness green
+- [x] S1.5 Test harness green
   - claude plugin test; one render snapshot test
-- [ ] S1.6 Read cc-plugin-diff source
+- [x] S1.6 Read cc-plugin-diff source
   - steal: scrolling, key legend, keyboard actions
-- [ ] S1.7 Spike: shift J/K/H/L keys
+- [x] S1.7 Spike: shift J/K/H/L keys
   - D24: Pane-context shift+x → Button action
-  - fallback: PgDn/PgUp + section digits
-- [ ] S1.8 Spike: haiku agent.spawn
+  - result: Shift never presses; Alt (Global) does
+  - shipped as ⌥j/⌥k page, ⌥h/⌥l section
+- [x] S1.8 Spike: haiku agent.spawn
   - D29: can a mod spawn a haiku subagent w/ prompt
 
 ## M2 Plan model
-- [ ] S2.1 Parse DEV_PLAN grammar
+- [x] S2.1 Parse DEV_PLAN grammar
   - pure fn text → {milestones, steps, errors}
-- [ ] S2.2 Front matter context list
-- [ ] S2.3 Parse diagnostics
+- [x] S2.2 Front matter context list
+- [x] S2.3 Parse diagnostics
   - dup ID, two [~], bad marker → red header line
-- [ ] S2.4 DEV_PLAN.md template
-- [ ] S2.5 Parser tests from fixtures
-- [ ] S2.6 Typed issue codes
+- [x] S2.4 DEV_PLAN.md template
+- [x] S2.5 Parser tests from fixtures
+- [x] S2.6 Typed issue codes
   - dup-id, multi-doing, bad-marker, orphan-trailer
 
 ## M3 Activation
-- [ ] S3.1 /project [dir] command
+- [~] S3.1 /project [dir] command
   - asks via Input when dir omitted
 - [ ] S3.2 activate tool for Claude
   - mcp__claude-toc__activate({dir}); D19
