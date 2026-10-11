@@ -1,0 +1,4 @@
+{
+  "description": "claude-toc: the sidebar pane, /toc and /project, the activate tool, the step ledger and the Plan-Step trailer",
+  "modules": ["./register.ts"]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "claude-toc",
+  "owner": {
+    "name": "Aleksei Sholokhov"
+  },
+  "plugins": [
+    {
+      "name": "toc",
+      "source": "./",
+      "description": "Sidebar table of contents for DEV_PLAN.md-driven Claude Code work"
+    }
+  ],
+  "description": "claude-toc: a sidebar table of contents for plan-driven Claude Code sessions"
+}
