@@ -100,10 +100,10 @@ export function diffPage(files: DiffFile[], rows: PRow[], offset: number, count:
 }
 
 // A whole file (untracked, so no diff): plain source, paged by line.
-export function sourcePage(path: string, text: string, offset: number, count: number): Segment[] {
+export function sourcePage(path: string, text: string, offset: number, count: number, firstLine = 1): Segment[] {
   const lines = text.split('\n')
   const body = lines.slice(offset, offset + count)
-  return [{ kind: 'source', path, source: body.join('\n'), startLine: offset + 1, rows: body.length }]
+  return [{ kind: 'source', path, source: body.join('\n'), startLine: firstLine + offset, rows: body.length }]
 }
 
 export function sourceRowCount(text: string): number {

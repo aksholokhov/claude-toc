@@ -194,11 +194,18 @@ async function loadPreview($) {
   const p = await fetchPreview($, t, key)
   if (previewWanted !== key) return
   preview = p
+  ui = { ...ui, previewOffset: 0 }
   if (t.kind === 'cfile') ui = { ...ui, previewOffset: fileRowIndex(p, t.path) }
 }
 
 async function fetchPreview($, t: Target, key: string): Promise<Preview> {
   const r = root ?? base!
+  if (t.kind === 'brief') {
+    const text = data ? await readText($, data.planPath) : null
+    if (text === null) return { key, files: null, source: null, path: PLAN_FILE, error: 'cannot read ' + PLAN_FILE }
+    const lines = text.replace(/\r\n?/g, '\n').split('\n').slice(t.from - 1, t.to)
+    return { key, files: null, source: lines.join('\n'), path: PLAN_FILE, firstLine: t.from }
+  }
   if (t.kind === 'commit' || t.kind === 'cfile') {
     const show = await run($, showArgs(r, t.sha), r)
     return show.ok ? { key, files: parseDiff(show.out), source: null, path: '' } : { key, files: null, source: null, path: '', error: 'git show failed' }
@@ -364,10 +371,16 @@ async function handleKey($, key: Key, surface?: string) {
   const before = ui
   const r = press(ui, key, { data, repair, alloc: alloc(), previewCosts: previewCosts(preview, width), preview })
   ui = r.ui
-  if (before.cursor[ART] !== ui.cursor[ART] || before.step !== ui.step) await loadPreview($)
+  if (shownKey(before) !== shownKey(ui)) await loadPreview($)
   $.ui.invalidate('ui.render')
   await effect($, r.effect, surface)
   syncRing($)
+}
+
+// What Preview shows for this state; a change means reload it.
+function shownKey(u: UI): string {
+  const t = data ? previewTarget(u, data) : null
+  return t ? targetKey(t) : ''
 }
 
 // Keep the focus ring on the cursor row after our own moves.
@@ -530,6 +543,7 @@ async function inViewer($, cmd: string[], what: string) {
 // A commit, a file in a commit, or a working-tree change, in the pager.
 async function viewDiff($, t: Target, surface?: string) {
   const r = root ?? base!
+  if (t.kind === 'brief') return data ? openInEditor($, data.planPath, surface, t.from) : undefined
   if (t.kind === 'file' && (t.state === '✓' || !root)) return openInEditor($, t.path, surface)
   const vt: ViewTarget =
     t.kind === 'commit' ? { kind: 'commit', sha: t.sha }
@@ -775,7 +789,7 @@ export function register(on) {
     lastFocus = key
     const before = ui
     ui = focusRow(ui, data, repair, key, alloc())
-    if (before.cursor[ART] !== ui.cursor[ART] || before.step !== ui.step) await loadPreview($)
+    if (shownKey(before) !== shownKey(ui)) await loadPreview($)
     $.ui.invalidate('ui.render')
     return next(e)
   }).catch(($, e, next) => next(e))

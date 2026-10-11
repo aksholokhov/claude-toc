@@ -180,7 +180,8 @@ function rowView(v: ViewInput, sec: number, r: Row) {
       const active = isActive(m)
       const glyphStyle = complete ? { color: roles.doneDim } : active ? { color: roles.doing, bold: true } : { color: roles.strong, bold: true }
       const glyph = isFolded(ui, plan, m.id) ? '▸ ' : '▾ '
-      return right(m.id + ' ' + m.title, done + '/' + live + (complete ? ' ✓' : '  '), { dim: complete }, complete ? { color: roles.doneDim } : active ? { color: roles.doing, bold: true } : { color: roles.dim },
+      const acc = m.acceptance.total && !complete ? ' ☐' + m.acceptance.done + '/' + m.acceptance.total : ''
+      return right(m.id + ' ' + m.title, done + '/' + live + acc + (complete ? ' ✓' : '  '), { dim: complete }, complete ? { color: roles.doneDim } : active ? { color: roles.doing, bold: true } : { color: roles.dim },
         [t(v, glyph, glyphStyle)], 2)
     }
     case 'step': {
@@ -241,7 +242,7 @@ function previewBody(v: ViewInput): unknown[] {
   // n is screen rows; Code wraps, so take the lines that fit when wrapped.
   const count = fitCount(previewCosts(p, v.width), ui.previewOffset, n)
   if (p.files) segs = diffPage(p.files, diffRows(p.files), ui.previewOffset, count)
-  else if (p.source !== null) segs = sourcePage(p.path, p.source, ui.previewOffset, count)
+  else if (p.source !== null) segs = sourcePage(p.path, p.source, ui.previewOffset, count, p.firstLine)
   const out: unknown[] = []
   segs.forEach((s, i) => {
     if (s.kind === 'file') {

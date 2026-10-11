@@ -35,8 +35,10 @@ export type Target =
   | { kind: 'commit'; sha: string; short: string }
   | { kind: 'cfile'; sha: string; short: string; path: string }
   | { kind: 'file'; path: string; rel: string; state: FileState }
+  | { kind: 'brief'; id: string; from: number; to: number }
 
-export type Preview = { key: string; files: DiffFile[] | null; source: string | null; path: string; error?: string }
+// firstLine: where `source` starts in its file (a brief is a slice of DEV_PLAN.md).
+export type Preview = { key: string; files: DiffFile[] | null; source: string | null; path: string; firstLine?: number; error?: string }
 
 export type UI = {
   sec: number
@@ -48,6 +50,9 @@ export type UI = {
   open: Record<string, boolean>
   step: string | null
   previewOffset: number
+  // Preview shows the Plan row's brief (true) or the Artifacts row (false):
+  // whichever list the person last moved in.
+  brief: boolean
 }
 
 export type Row =
@@ -74,7 +79,7 @@ export type Effect =
 
 export function initialUI(): UI {
   // Keys starts folded: its header row still carries the hotkeys (view.ts).
-  return { sec: PLAN, zoom: null, collapsed: [KEYS], cursor: [null, null, null, null, null], offset: [0, 0, 0, 0, 0], fold: {}, open: {}, step: null, previewOffset: 0 }
+  return { sec: PLAN, zoom: null, collapsed: [KEYS], cursor: [null, null, null, null, null], offset: [0, 0, 0, 0, 0], fold: {}, open: {}, step: null, previewOffset: 0, brief: true }
 }
 
 // ── rows ────────────────────────────────────────────────────────────────
@@ -126,7 +131,12 @@ export function artRows(ui: UI, data: Data): Row[] {
   if (id === null) return [{ key: 'a:none', kind: 'empty', text: 'select a step' }]
   const rows: Row[] = []
   const step = data.plan ? findStep(data.plan, id) : null
-  if (step) step.notes.forEach((t, n) => rows.push({ key: 'n:' + n, kind: 'note', text: t }))
+  // The brief (4) and p show all of it; here a glance.
+  if (step) {
+    step.notes.slice(0, NOTE_ROWS).forEach((t, n) => rows.push({ key: 'n:' + n, kind: 'note', text: t }))
+    const more = step.notes.length - NOTE_ROWS
+    if (more > 0) rows.push({ key: 'n:more', kind: 'note', text: '… ' + more + ' more line' + (more > 1 ? 's' : '') + ' (p)' })
+  }
   const commits = data.commits.get(id) ?? []
   for (const c of commits) {
     const isOpen = isCommitOpen(ui, commits, c.sha)
@@ -159,14 +169,33 @@ export function targetOf(row: Row | undefined): Target | null {
   return null
 }
 
-// The Artifacts row under the cursor, else the first previewable one.
+const NOTE_ROWS = 3
+
+// A milestone's or step's lines in DEV_PLAN.md.
+export function briefOf(plan: Plan | null, id: string | null): Target | null {
+  if (!plan || id === null) return null
+  const m = plan.milestones.find((x) => x.id === id)
+  if (m) return { kind: 'brief', id, from: m.line, to: m.end }
+  const s = findStep(plan, id)
+  return s ? { kind: 'brief', id, from: s.line, to: s.end } : null
+}
+
+// In brief mode the Plan row under the cursor (else the selected step);
+// otherwise the Artifacts row under the cursor, else the first previewable one.
 export function previewTarget(ui: UI, data: Data): Target | null {
+  if (ui.brief) {
+    const row = planRows(ui, data, null).find((r) => r.key === ui.cursor[PLAN])
+    const id = row?.kind === 'ms' ? row.id : row?.kind === 'step' ? row.step.id : selectedStep(ui, data)
+    const b = briefOf(data.plan, id)
+    if (b) return b
+  }
   const rows = artRows(ui, data)
   const at = rows.find((r) => r.key === ui.cursor[ART])
   return targetOf(at) ?? rows.map(targetOf).find((t) => t !== null) ?? null
 }
 
 export function targetKey(t: Target): string {
+  if (t.kind === 'brief') return 'brief:' + t.id + ':' + t.from + '-' + t.to
   if (t.kind === 'commit') return 'commit:' + t.sha
   if (t.kind === 'cfile') return 'commit:' + t.sha
   return 'file:' + t.path + ':' + t.state
@@ -174,6 +203,7 @@ export function targetKey(t: Target): string {
 
 export function targetTitle(t: Target | null): string {
   if (!t) return '—'
+  if (t.kind === 'brief') return t.id + ' brief'
   if (t.kind === 'file') return t.rel.split('/').pop() ?? t.rel
   if (t.kind === 'cfile') return t.short + ' ' + (t.path.split('/').pop() ?? '')
   return t.short
@@ -193,7 +223,7 @@ export function gutterWidth(p: Preview): number {
     const top = Math.max(1, ...p.files.flatMap((f) => f.hunks.map((h) => Math.max(h.oldStart, h.newStart) + h.lines.length)))
     return String(top).length + 3
   }
-  return String(p.source === null ? 1 : sourceRowCount(p.source)).length + 2
+  return String((p.firstLine ?? 1) + (p.source === null ? 1 : sourceRowCount(p.source))).length + 2
 }
 
 // Screen rows each preview row takes at this pane width (Code wraps).
@@ -304,7 +334,19 @@ function enter(ui: UI, sec: number, from: 'top' | 'bottom', c: Ctx): UI {
   return withCursor(next, sec, rows, rows.length - 1, Math.max(1, c.alloc[sec]))
 }
 
+// Moving in Plan shows briefs in Preview; moving in Artifacts, their diffs.
+function settle(ui: UI): UI {
+  if (ui.sec === PLAN && !ui.brief) return { ...ui, brief: true, previewOffset: 0 }
+  if (ui.sec === ART && ui.brief) return { ...ui, brief: false, previewOffset: 0 }
+  return ui
+}
+
 export function press(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } {
+  const r = pressIn(ui, pressed, c)
+  return { ...r, ui: settle(r.ui) }
+}
+
+function pressIn(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } {
   let key = pressed
   const none: Effect = { kind: 'none' }
   const sec = ui.sec
@@ -345,10 +387,11 @@ export function press(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } 
     if (key === 'pageup') return at(pageBack(costs, off, alloc))
     if (key === 'g') return at(0)
     if (key === 'e') return at(max)
-    if (key === 'h') return { ui: isShown(ui, PREV) ? { ...ui, sec: ART } : ui, effect: none }
+    if (key === 'h') return { ui: isShown(ui, PREV) ? { ...ui, sec: ui.brief ? PLAN : ART } : ui, effect: none }
     if (key === 'l' || key === 'o') return { ui: collapse(ui, PREV, false), effect: none }
     if (key === 'p') return { ui, effect: planLine(ui, c.data) }
     const t = previewTarget(ui, c.data)
+    if (key === 'd' && t?.kind === 'brief') return { ui, effect: { kind: 'open', path: c.data.planPath, line: t.from } }
     if (key === 'd' && t) return { ui, effect: { kind: 'view', target: t } }
     if (key === 'v' && t) return { ui, effect: historyOf(t, c.data) }
     return { ui, effect: none }
@@ -453,6 +496,7 @@ function planLine(ui: UI, data: Data): Effect {
 
 // lazygit: a commit opens the log; a file opens that file's history.
 function historyOf(t: Target, data: Data): Effect {
+  if (t.kind === 'brief') return { kind: 'history', path: data.planPath }
   if (t.kind === 'commit') return { kind: 'history', path: null }
   if (t.kind === 'cfile') return { kind: 'history', path: joinPath(data.root ?? data.base, t.path) }
   return { kind: 'history', path: t.path }
@@ -475,7 +519,7 @@ export function focusRow(ui: UI, data: Data, repair: Repair, rowKey: string, all
   for (let sec = 0; sec < 3; sec++) {
     const rows = rowsOf(sec, ui, data, repair)
     const i = rows.findIndex((r) => r.key === rowKey)
-    if (i >= 0) return withCursor({ ...ui, sec }, sec, rows, i, Math.max(1, alloc[sec]))
+    if (i >= 0) return settle(withCursor({ ...ui, sec }, sec, rows, i, Math.max(1, alloc[sec])))
   }
   const h = /^h:(\d)$/.exec(rowKey)
   if (h) {

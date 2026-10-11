@@ -109,32 +109,83 @@ can be **zoomed** to take the whole pane while the others collapse (D27).
 - Capped at the mods per-tree text limit (100 000 chars); beyond that the last
   page says "truncated: `d` opens the full diff in nvim".
 
-## 5. DEV_PLAN.md grammar (D3)
+## 5. DEV_PLAN.md grammar, v2 (D3, D41)
+
+A DEV_PLAN.md is first a **human-readable engineering plan** written to a
+high standard — why, scope, architecture, milestones with deliverables,
+acceptance criteria and tests, open decisions, definition of done — and
+second a document toc can read. The machine part is small: milestone
+headings, ID'd deliverables, and acceptance checkboxes. Everything else is
+prose for people, which toc shows but never interprets. The `toc:dev-plan`
+skill teaches Claude to write it.
 
 ```markdown
 ---
 toc:
   context: [SPEC.md, DEV_PLAN.md, KNOWLEDGE.md, SCRATCHPAD.md]
 ---
-## M1 Milestone title            ← H2 = milestone ("chapter")
-### Optional group               ← H3 = visual group only, no status
-- [x] S1.1 Short step title      ← step: checkbox + stable ID + title
-  - note lines (shown in Artifacts, not in the Plan list)
-- [~] S1.2 In-progress step
-- [-] S1.3 Cancelled step
-- [ ] S1.4 Todo step
+# <Project> — dev plan
+
+> **Status:** where it stands, one line.
+> **Goal:** the outcome, in a sentence or two.
+> **Blocks / blocked by:** optional.
+
+## Scope                         ← free sections: In / Out / Non-goals,
+## Architecture                    Architecture, Risks … any H2 not "Milestones"
+
+## Milestones
+### M2 — The thing this milestone delivers      ← milestone: H3, ID, " — ", title
+Why it exists: what it proves and the trap it closes (prose, the "brief").
+
+**Deliverables**                               ← label line
+- [x] S2.1 Source manifest — `sources.conf`, reviewable as data.
+- [~] S2.2 Gather script — three assertions per source.
+  Continuation lines and sub-bullets (indented) belong to the step.
+- [-] S2.3 Dropped idea — why it was cut.
+
+**Acceptance**                                 ← counted, not tracked: no IDs
+- [x] A healthy run completes and lists the archive.
+- [ ] Repo size is within 2× of the estimate.
+
+**Tests**                                      ← free; checkboxes here are ignored
+1. Stop the automount → expect a non-zero exit, no archive.
+
+## Decisions                    ← free; checkboxes outside milestones are ignored
+## Definition of done
 ```
 
+**Milestones.** A heading `### M<n> — Title` (`##` also accepted; `—`, `:`
+or `-` as the separator). A milestone runs until the next heading of the
+same or a higher level; deeper headings inside it are visual groups.
+Milestone status is derived, never written: done when every live step is
+done **and** every acceptance box is checked.
+
+**Labels.** Inside a milestone a line that is only `**Label**` (optional
+colon) starts a block. Under `**Deliverables**` — or before any label —
+checkboxes are **steps** and need an ID. Under `**Acceptance**` they are
+counted (`acc 2/5` beside the milestone). Under any other label they are
+ignored.
+
+**Steps.** `- [m] S<n>.<k> Short title — one-sentence description`.
 - Markers: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cancelled.
-- **IDs are stable**: `S<milestone>.<n>`, never reused or renumbered; reorder
-  freely.
+- **IDs are stable**: `S<milestone>.<k>`, never reused or renumbered (commit
+  trailers point at them); reorder freely.
 - **At most one `[~]`** in the file (the ledger needs a single active step).
-- Max nesting: milestone → step. Prefer long flat lists over depth.
-- Titles ≤ 28 characters; detail goes into the indented sub-bullets.
-- Milestone status is derived from its steps (never written).
-- Anything the grammar doesn't match is ignored by the parser (prose is fine).
-- Parse problems (duplicate ID, two `[~]`) show as a red line in the Plan
-  header — they never crash the panel.
+- The short title (before ` — `) is what the sidebar shows: ≤ 28 characters.
+  The description and the indented lines below are the step's notes.
+
+**Everything else** — the header block, free sections, prose inside
+milestones, tables, fences, comments — is for people. toc shows a selected
+milestone's or step's lines as its *brief* in Preview (D42), with the
+document's own line numbers.
+
+**Problems** (duplicate ID, two `[~]`, unknown marker, a deliverable without
+an ID) turn the Plan header red and offer the repair agent (§7.6); they
+never crash the panel. Long titles and orphan trailers only warn.
+
+**Legacy (v1)**: `## M1 Title` followed directly by `- [x] S1.1 Title` and
+indented notes is the same grammar with no labels and no prose, and still
+parses.
 
 ## 6. Attribution
 
@@ -333,3 +384,5 @@ No file watcher in the mods API, so:
 | D38 | Chord actions must have no engine handler: `strip:jump1-3`, `confirm:previousField`, `permission:toggleDebug` (`app:toggleReplTab` is Claude's tab switch once two panes are open) |
 | D39 | `l`/`h` drill in and out along Plan → Artifacts → Preview |
 | D40 | `p` opens DEV_PLAN.md at the selected step |
+| D41 | DEV_PLAN v2: a human-grade plan with a small machine part — milestone headings, ID'd deliverables, counted acceptance |
+| D42 | Selecting a milestone/step in Plan shows its lines in Preview (the brief) |

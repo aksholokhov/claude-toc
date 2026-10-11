@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { LOG, SHOW } from './fixtures/git.ts'
+import { parsePlan } from '../hooks/lib/plan.ts'
 
 const BASE = '/work/proj'
 const PLAN_TEXT = `## M1 First
@@ -163,13 +164,16 @@ test('h folds a milestone, l unfolds it; z zooms; collapsed sections keep a head
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'key:j' }) // M1
   await ui.press({ key: 'key:h' })
-  let text = (await drawn(ui)).join('\n')
+  // Plan's rows only: Preview now shows the milestone's brief, steps and all.
+  const plan = async () => (await drawn(ui)).join('\n').split('3─┤')[0]
+  let text = await plan()
   expect(text).toMatch(/▸ M1 First/)
   expect(text).not.toMatch(/S1\.2 Doing it/)
   await ui.press({ key: 'key:l' })
-  text = (await drawn(ui)).join('\n')
+  text = await plan()
   expect(text).toMatch(/▾ M1 First/)
   expect(text).toMatch(/S1\.2 Doing it/)
+  text = (await drawn(ui)).join('\n')
 
   await ui.press({ key: 'key:z' })
   text = (await drawn(ui)).join('\n')
@@ -304,7 +308,10 @@ test('/project scaffolds DEV_PLAN.md and .toc in an empty folder, idempotently',
   await start($)
   const r1 = await $.command.run({ command: 'project', args: '.' })
   expect(r1.text).toMatch(/created DEV_PLAN\.md/)
-  expect(files[BASE + '/DEV_PLAN.md']).toMatch(/## M1 First milestone/)
+  expect(files[BASE + '/DEV_PLAN.md']).toMatch(/### M1 — /)
+  const scaffolded = parsePlan(files[BASE + '/DEV_PLAN.md'])
+  expect(scaffolded.issues).toEqual([])
+  expect(scaffolded.milestones[0].acceptance).toEqual({ done: 0, total: 1 })
   expect(files[BASE + '/.toc/ledger.jsonl']).toBe('')
   expect(files[BASE + '/.git/info/exclude']).toBe('# git\n/.toc/\n')
   expect((h.store.get('bases') as Record<string, string>)[BASE]).toBe(BASE)
@@ -569,4 +576,20 @@ test('quitting the viewer hands the keys back to toc, not the prompt', async ($,
   panes = '%5\n' // q in the pager: the pane is gone
   await h.clock.advance(500)
   expect(opened).toEqual([expect.objectContaining({ id: 'toc', focus: true })])
+})
+
+test('the brief: moving in Plan shows the row\'s lines of DEV_PLAN.md in Preview; Artifacts takes it back', async ($, on) => {
+  host(on, baseFiles(), { git: true })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  for (const k of ['j', 'j', 'j']) await ui.press({ key: 'key:' + k }) // M1, S1.1, S1.2
+  let text = (await drawn(ui)).join('\n')
+  expect(text).toMatch(/4─┤ Preview · S1\.2 brief/)
+  const code = await ui.find({ type: 'Code' })
+  expect(code.props.startLine).toBe(4) // the document's own line numbers
+  expect(code.props.source).toBe('- [~] S1.2 Doing it')
+  await ui.press({ key: 'key:l' }) // into Artifacts: Preview follows it again
+  await ui.press({ key: 'key:j' })
+  text = (await drawn(ui)).join('\n')
+  expect(text).not.toMatch(/brief/)
 })

@@ -62,17 +62,33 @@ For development, load the working tree instead: `claude --plugin-dir ~/claude-to
 
 ## DEV_PLAN.md
 
+A human-readable engineering plan — why, scope, milestones with deliverables,
+acceptance criteria and tests, decisions, definition of done — of which toc
+reads a small part (full grammar: SPEC.md §5; this repo's own DEV_PLAN.md is an
+example). Ask Claude to "write a dev plan": the bundled `toc:dev-plan` skill
+teaches it the structure and the syntax.
+
 ```markdown
-## M1 Milestone title
-- [x] S1.1 Short step title
-  - detail goes in sub-bullets
-- [~] S1.2 The one step in progress
-- [-] S1.3 Cancelled
-- [ ] S1.4 Todo
+## Milestones
+### M2 — What this milestone delivers
+Why it exists (prose: shown as the milestone's brief).
+
+**Deliverables**
+- [x] S2.1 Short title — one-sentence description
+  indented detail lines
+- [~] S2.2 The one step in progress — …
+
+**Acceptance**
+- [ ] A binary, testable statement.        ← counted, never ID'd
+
+**Tests**
+1. How it is demonstrated.                ← free
 ```
 
-Stable IDs, at most one `[~]`, titles ≤ 28 characters. While toc is active
-Claude gets these rules in its context, and while a step is `[~]`:
+Stable step IDs, at most one `[~]`, short titles ≤ 28 characters. Moving the
+cursor in Plan shows the selected milestone's or step's lines in Preview; `p`
+opens the file there. While toc is active Claude gets these rules in its
+context, and while a step is `[~]`:
 
 - Claude's `git commit` commands get `--trailer 'Plan-Step: <id>'`;
 - files Claude writes, edits or changes from Bash are logged against the step

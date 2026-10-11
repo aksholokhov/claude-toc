@@ -84,3 +84,70 @@ test('parses the real DEV_PLAN.md of this repo without errors', () => {
   expect(plan.issues.filter((i) => i.severity === 'error')).toEqual([])
   expect(plan.milestones.length).toBe(10)
 })
+
+const V2 = `---
+toc:
+  context: [SPEC.md]
+---
+# Proj — dev plan
+
+> **Status:** started.
+
+## Scope
+- [ ] a checkbox in prose is ignored
+
+## Milestones
+### M1 — First thing
+Why it exists.
+
+**Deliverables**
+- [x] S1.1 Parse things — the parser, pure.
+  More detail on the next line.
+  - and a sub-bullet
+- [~] S1.2 Wire it
+
+**Acceptance**
+- [x] It parses.
+- [ ] It renders.
+
+**Tests**
+- [ ] checkboxes under other labels are ignored
+
+#### A group
+- [ ] S1.3 Grouped step
+
+### M2: Second
+- [ ] S2.1 Later
+
+## Decisions
+- [ ] Pick a colour.
+`
+
+test('v2: milestones by heading, labels, acceptance counted, prose ignored', () => {
+  const plan = parsePlan(V2)
+  expect(plan.issues).toEqual([])
+  expect(plan.context).toEqual(['SPEC.md'])
+  expect(plan.milestones.map((m) => [m.id, m.title])).toEqual([['M1', 'First thing'], ['M2', 'Second']])
+  const [m1, m2] = plan.milestones
+  expect(m1.steps.map((s) => s.id)).toEqual(['S1.1', 'S1.2', 'S1.3'])
+  expect(m1.steps[0].title).toBe('Parse things')
+  expect(m1.steps[0].notes).toEqual(['the parser, pure.', 'More detail on the next line.', 'and a sub-bullet'])
+  expect([m1.steps[0].line, m1.steps[0].end]).toEqual([17, 19])
+  expect(m1.steps[2].group).toBe('A group')
+  expect(m1.acceptance).toEqual({ done: 1, total: 2 })
+  expect(isComplete(m1)).toBe(false)
+  expect([m1.line, m1.end]).toEqual([13, 30])
+  expect([m2.line, m2.end]).toEqual([32, 33])
+})
+
+test('v2: a deliverable without an ID is an error; acceptance never needs one', () => {
+  const plan = parsePlan('## Milestones\n### M1 — X\n**Deliverables**\n- [ ] no id here\n**Acceptance**\n- [ ] fine\n')
+  expect(plan.issues.map((i) => i.code)).toEqual(['missing-id'])
+})
+
+test('a milestone is done only when its acceptance is all checked', () => {
+  const done = parsePlan('### M1 — X\n- [x] S1.1 A\n**Acceptance**\n- [x] yes\n')
+  expect(isComplete(done.milestones[0])).toBe(true)
+  const open = parsePlan('### M1 — X\n- [x] S1.1 A\n**Acceptance**\n- [ ] not yet\n')
+  expect(isComplete(open.milestones[0])).toBe(false)
+})

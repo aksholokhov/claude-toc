@@ -147,3 +147,8 @@ Hard-won facts about the platform. Verified against the docs on 2026-10-10
   watches the panes it started (400 ms `list-panes` while any is alive) and
   re-opens itself with `focus` when one is gone and Claude's pane is active.
   Verified live both ways (without it, the next `j` lands in the prompt).
+- **Git trailers live only in the message's last paragraph.** A
+  `Plan-Step: S7.1` line followed by a blank line and `Co-Authored-By:` is
+  plain text, not a trailer — five hand-written commits here were invisible
+  to toc for that reason. Keep every trailer in one final block (toc's own
+  `--trailer` rewrite always does).
