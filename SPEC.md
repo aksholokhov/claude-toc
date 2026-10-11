@@ -182,8 +182,9 @@ from a focused pane. `/toc keys` merges those bindings into
 | `h` / `l` | fold / unfold: milestone, commit, or the section on its header |
 | `z` | zoom the focused section to the full pane; again to restore |
 | `g` / `e` | top (section header) / end of section |
-| `o`, Enter | open: file → nvim tab; step → its Artifacts; commit → Preview |
-| `d` | open the selected commit/file diff in nvim (full, untruncated) |
+| `o`, Enter | open: file → nvim tab; step → its Artifacts; commit, or a file under one → its change in the viewer (D37) |
+| `d` | the selected commit/file's change in the viewer (`git show` / `git diff HEAD`, through the person's pager: delta) |
+| `v` | lazygit in the viewer: a commit → its log; a file → that file's history (`-f`) |
 | `y` / `n` | answer the repair prompt, when shown (§7.6) |
 | ↑ / ↓ | move the focus ring row by row (rows are buttons); at a section's edge they scroll it |
 | Esc | focus back to the prompt (Claude Code default) |
@@ -237,6 +238,14 @@ wraps long lines (Code's default) and pages by screen rows, not lines (D35).
   sidebar. (Was: left if ≥ 220 cols, else below — revised after the first
   user test.) The sidebar itself can't move left: the fullscreen dock is
   right-only in 2.1.296 (D36).
+- **The viewer (D37):** a past commit is read as its change, not as today's
+  file. `git show` / `git diff` run in a tmux pane through the person's
+  `core.pager` (delta), or lazygit for history; the pane closes when it
+  quits. nvim and the viewer share the left column: the second to open
+  splits the first top/bottom, so Claude keeps its width; a second view
+  replaces the first (`respawn-pane`). The pane gets the theme from the mode
+  file (`DELTA_FEATURES`, `LG_CONFIG_FILE`), since a tmux-spawned pane has no
+  shell hook, and `DELTA_PAGER=less -R` so a short diff doesn't close it.
 
 ### 7.6 Plan repair (D28, D29)
 - When `DEV_PLAN.md` fails the grammar (duplicate ID, two `[~]`, malformed
@@ -319,3 +328,4 @@ No file watcher in the mods API, so:
 | D34 | Key legend = fifth section, Keys, folded by default; `5` jumps to it |
 | D35 | Preview wraps long lines; pages hold what fits once wrapped |
 | D36 | Sidebar stays on the right: the mods dock has no side option |
+| D37 | Commits open as diffs in a delta/lazygit viewer pane, not as files in nvim |

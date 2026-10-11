@@ -263,7 +263,7 @@ function legend(v: ViewInput, open: boolean) {
     el.Button({ key: 'act:' + name, label, plain: true, dimColor: true, action: ACTIONS[name], onPress: v.act.key(name) })
   const repairAsk = v.repair && v.repair.phase === 'ask' && v.data.plan && v.data.plan.issues.some((i) => i.severity === 'error')
   const row1 = [hot('j', '↓'), hot('k', '↑'), hot('f', '⇟'), hot('b', '⇞'), hot('h', '◂'), hot('l', '▸'), hot('g', '⤒'), hot('e', '⤓')]
-  const row2 = [hot('o', 'open'), hot('d', 'diff'), hot('z', 'zoom'), hot('q', 'close')]
+  const row2 = [hot('o', 'open'), hot('d', 'diff'), hot('v', 'git'), hot('z', 'zoom'), hot('q', 'close')]
   if (repairAsk) row2.unshift(hot('y', 'yes'), hot('n', 'no'))
   // Alt keys only reach us in terminals that send them (iTerm2: Option as Esc+).
   const row3 = [hot('1', 'ctx'), hot('2', 'plan'), hot('3', 'art'), hot('4', 'prev'), hot('5', 'keys'),

@@ -123,3 +123,9 @@ Hard-won facts about the platform. Verified against the docs on 2026-10-10
   click did nothing. Give the chord its own (hidden) button.
 - Mouse clicks can be scripted in a detached tmux with
   `send-keys -l $'\e[<0;X;YM'` then `…m` (SGR press/release).
+- **delta runs `less --quit-if-one-screen` itself**, whatever `LESS` says,
+  so a short diff in a tmux pane exits at once and the pane vanishes. Set
+  `DELTA_PAGER='less -R'` (and `LESS=-R` against git's own `FRX`).
+- A pane spawned by `tmux split-window` gets tmux's **global** env, which
+  can be stale (here `DELTA_FEATURES=+gm-light` while in dark mode): pass
+  the theme with `-e` from the mode file. `respawn-pane -k -e` reuses a pane.

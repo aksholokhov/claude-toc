@@ -66,7 +66,8 @@ export type Row =
 export type Effect =
   | { kind: 'none' }
   | { kind: 'open'; path: string }
-  | { kind: 'diff'; target: Target }
+  | { kind: 'view'; target: Target }
+  | { kind: 'history'; path: string | null }
   | { kind: 'repair'; yes: boolean }
   | { kind: 'scaffold' }
   | { kind: 'close' }
@@ -287,7 +288,7 @@ export function keepVisible(offset: number, idx: number, alloc: number, n: numbe
 export type Ctx = { data: Data; repair: Repair; alloc: number[]; previewCosts: number[]; preview: Preview | null }
 
 export type Key =
-  | 'j' | 'k' | 'h' | 'l' | 'g' | 'e' | 'o' | 'd' | 'z' | 'y' | 'n' | 'q' | 'f' | 'b'
+  | 'j' | 'k' | 'h' | 'l' | 'g' | 'e' | 'o' | 'd' | 'v' | 'z' | 'y' | 'n' | 'q' | 'f' | 'b'
   | '1' | '2' | '3' | '4' | '5' | 'pagedown' | 'pageup' | 'prevsec' | 'nextsec'
 
 // Enter a section from the top (its header) or the bottom (its last row).
@@ -346,10 +347,9 @@ export function press(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } 
     if (key === 'e') return at(max)
     if (key === 'h') return { ui: collapse(ui, PREV, true), effect: none }
     if (key === 'l' || key === 'o') return { ui: collapse(ui, PREV, false), effect: none }
-    if (key === 'd') {
-      const t = previewTarget(ui, c.data)
-      return { ui, effect: t ? { kind: 'diff', target: t } : none }
-    }
+    const t = previewTarget(ui, c.data)
+    if (key === 'd' && t) return { ui, effect: { kind: 'view', target: t } }
+    if (key === 'v' && t) return { ui, effect: historyOf(t, c.data) }
     return { ui, effect: none }
   }
 
@@ -405,8 +405,8 @@ export function press(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } 
       return { ui: { ...followStep(ui, row), step: id, sec: ART, collapsed: ui.collapsed.filter((s) => s !== ART) }, effect: none }
     }
     if (row.kind === 'repair') return { ui, effect: row.phase === 'ask' ? { kind: 'repair', yes: true } : none }
-    if (row.kind === 'commit') return { ui: { ...ui, sec: PREV, previewOffset: 0, collapsed: ui.collapsed.filter((s) => s !== PREV) }, effect: none }
-    if (row.kind === 'cfile') return { ui, effect: { kind: 'open', path: joinPath(c.data.root ?? c.data.base, row.path) } }
+    // A past commit is read as its change, not as today's file.
+    if (row.kind === 'commit' || row.kind === 'cfile') return { ui, effect: { kind: 'view', target: targetOf(row)! } }
     if (row.kind === 'file') return { ui, effect: row.file.state === 'D' ? none : { kind: 'open', path: row.file.path } }
     if (row.kind === 'empty' && row.key === 'p:none') return { ui, effect: { kind: 'scaffold' } }
     return { ui, effect: none }
@@ -414,10 +414,22 @@ export function press(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } 
 
   if (key === 'd') {
     const t = targetOf(row)
-    if (t) return { ui, effect: { kind: 'diff', target: t } }
+    if (t) return { ui, effect: { kind: 'view', target: t } }
     if (row.kind === 'ctx' && row.file.exists) return { ui, effect: { kind: 'open', path: row.file.path } }
   }
+  if (key === 'v') {
+    const t = targetOf(row)
+    if (t) return { ui, effect: historyOf(t, c.data) }
+    if (row.kind === 'ctx' && row.file.exists) return { ui, effect: { kind: 'history', path: row.file.path } }
+  }
   return { ui, effect: none }
+}
+
+// lazygit: a commit opens the log; a file opens that file's history.
+function historyOf(t: Target, data: Data): Effect {
+  if (t.kind === 'commit') return { kind: 'history', path: null }
+  if (t.kind === 'cfile') return { kind: 'history', path: joinPath(data.root ?? data.base, t.path) }
+  return { kind: 'history', path: t.path }
 }
 
 export function collapse(ui: UI, sec: number, on: boolean): UI {

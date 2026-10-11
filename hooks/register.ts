@@ -3,7 +3,11 @@
 // hooks/lib/* is pure and unit-tested.
 
 import { parseDiff } from './lib/diff.ts'
-import { aliveArgs, paneAliveArgs, parseTmuxInfo, remoteTabArgs, selectPaneArgs, socketPath, splitArgs, tmuxInfoArgs } from './lib/editor.ts'
+import {
+  aliveArgs, diffViewArgs, lazygitArgs, leftSplitArgs, paneAliveArgs, parseTmuxInfo, remoteTabArgs, respawnArgs, selectPaneArgs, socketPath,
+  tmuxInfoArgs, viewerEnv,
+} from './lib/editor.ts'
+import type { ViewTarget } from './lib/editor.ts'
 import {
   changedBetween, commitsByStep, diffArgs, fileState, logArgs, parseLog, parseStatus, relativeTo, rootArgs, showArgs, statusArgs,
   supportsTrailer, withTrailer,
@@ -379,7 +383,8 @@ function syncRing($) {
 
 async function effect($, e: Effect, surface?: string) {
   if (e.kind === 'open') return openInEditor($, e.path, surface)
-  if (e.kind === 'diff') return diffInEditor($, e.target, surface)
+  if (e.kind === 'view') return viewDiff($, e.target, surface)
+  if (e.kind === 'history') return history($, e.path)
   if (e.kind === 'repair') return e.yes ? startRepair($) : dismissRepair($)
   if (e.kind === 'close') return $.ui.close({ id: PANE })
   if (e.kind === 'scaffold') {
@@ -399,56 +404,107 @@ async function tmuxPane($): Promise<string | null> {
   return r.ok && /^%\d+$/.test(id) ? id : null
 }
 
-async function openInEditor($, path: string, surface?: string) {
+// Claude's tmux pane and window, or null (toasted) when there's no tmux.
+async function claudeWindow($, fallback: () => Promise<void>) {
   const pane = await tmuxPane($)
   if (!pane) {
-    await $.ui.copy(surface ? { text: path, surface } : { text: path }).catch(() => undefined)
-    $.ui.toast('toc: not in tmux — copied ' + path)
-    return
+    await fallback()
+    return null
   }
   const info = parseTmuxInfo((await run($, tmuxInfoArgs(pane))).out)
   if (!info) {
     $.ui.toast('toc: could not read the tmux window')
-    return
+    return null
   }
+  return { pane, windowId: info.windowId }
+}
+
+// A pane we started in this window, if it's still there.
+async function livePane($, slot: 'nvimPanes' | 'viewerPanes', windowId: string): Promise<string | null> {
+  const known = (((await $.store.get(slot)) ?? {}) as Record<string, string>)[windowId]
+  return known && (await run($, paneAliveArgs(known))).ok ? known : null
+}
+
+async function keepPane($, slot: 'nvimPanes' | 'viewerPanes', windowId: string, pane: string) {
+  const panes = ((await $.store.get(slot)) ?? {}) as Record<string, string>
+  await $.store.set(slot, { ...panes, [windowId]: pane })
+}
+
+async function openInEditor($, path: string, surface?: string) {
+  const w = await claudeWindow($, async () => {
+    await $.ui.copy(surface ? { text: path, surface } : { text: path }).catch(() => undefined)
+    $.ui.toast('toc: not in tmux — copied ' + path)
+  })
+  if (!w) return
   const runtime = (await $.env.get('XDG_RUNTIME_DIR')) || '/tmp'
-  const sock = socketPath(runtime, info.windowId)
-  const panes = ((await $.store.get('nvimPanes')) ?? {}) as Record<string, string>
-  const known = panes[info.windowId]
-  const alive = (await run($, aliveArgs(sock))).ok
-  if (alive) {
+  const sock = socketPath(runtime, w.windowId)
+  if ((await run($, aliveArgs(sock))).ok) {
     const r = await run($, remoteTabArgs(sock, path))
     if (!r.ok) $.ui.toast('toc: nvim refused ' + path)
-    if (known && (await run($, paneAliveArgs(known))).ok) await run($, selectPaneArgs(known))
+    const known = await livePane($, 'nvimPanes', w.windowId)
+    if (known) await run($, selectPaneArgs(known))
     return
   }
-  const split = await run($, splitArgs(pane, sock, root ?? base ?? '.', path))
+  // nvim goes above the viewer when one is open, else left of Claude.
+  const viewer = await livePane($, 'viewerPanes', w.windowId)
+  const split = await run($, leftSplitArgs(w.pane, viewer, true, root ?? base ?? '.', [], ['nvim', '--listen', sock, path]))
   if (!split.ok) {
     $.ui.toast('toc: tmux split failed: ' + split.err.trim().slice(0, 80))
     return
   }
-  await $.store.set('nvimPanes', { ...panes, [info.windowId]: split.out.trim() })
+  await keepPane($, 'nvimPanes', w.windowId, split.out.trim())
 }
 
-async function diffInEditor($, t: Target, surface?: string) {
-  const b = base!
-  const r = root ?? b
-  let text = ''
-  let name = ''
-  if (t.kind === 'commit' || t.kind === 'cfile') {
-    const show = await run($, ['git', '-C', r, 'show', '--stat', '--patch', '--no-color', '--no-ext-diff', '-M', t.sha], r)
-    text = show.out
-    name = t.short + '.diff'
-  } else if (t.state === 'A' || t.state === '✓') {
-    return openInEditor($, t.path, surface)
-  } else {
-    const d = await run($, diffArgs(r, t.rel), r)
-    text = d.out
-    name = t.rel.replace(/\//g, '_') + '.diff'
+// The theme for delta and lazygit, as the person's shell would set it.
+async function viewerEnvFor($): Promise<string[]> {
+  const mode = parseMode(home ? await readText($, home + '/.config/theme/mode') : null) ?? 'dark'
+  const cfg = ((await $.env.get('XDG_CONFIG_HOME')) || (home ? home + '/.config' : '')) + '/lazygit'
+  const both = cfg !== '/lazygit' && (await $.fs.exists(cfg + '/config.yml')) && (await $.fs.exists(cfg + '/theme-' + mode + '.yml'))
+  return viewerEnv(mode, both ? cfg + '/config.yml,' + cfg + '/theme-' + mode + '.yml' : null)
+}
+
+// Run cmd in the viewer pane: reuse it, else open it in the left column.
+async function inViewer($, cmd: string[], what: string) {
+  const w = await claudeWindow($, async () => {
+    $.ui.toast('toc: not in tmux — run: ' + cmd.join(' ').slice(0, 120))
+  })
+  if (!w) return
+  const cwd = root ?? base ?? '.'
+  const env = await viewerEnvFor($)
+  const viewer = await livePane($, 'viewerPanes', w.windowId)
+  if (viewer) {
+    const r = await run($, respawnArgs(viewer, cwd, env, cmd))
+    if (r.ok) {
+      await run($, selectPaneArgs(viewer))
+      return
+    }
   }
-  const path = abs(b, '.toc/diffs/' + name)
-  await $.fs.write(path, text)
-  return openInEditor($, path, surface)
+  const nvim = await livePane($, 'nvimPanes', w.windowId)
+  const split = await run($, leftSplitArgs(w.pane, nvim, false, cwd, env, cmd))
+  if (!split.ok) {
+    $.ui.toast('toc: could not open ' + what + ': ' + split.err.trim().slice(0, 80))
+    return
+  }
+  await keepPane($, 'viewerPanes', w.windowId, split.out.trim())
+}
+
+// A commit, a file in a commit, or a working-tree change, in the pager.
+async function viewDiff($, t: Target, surface?: string) {
+  const r = root ?? base!
+  if (t.kind === 'file' && (t.state === '✓' || !root)) return openInEditor($, t.path, surface)
+  const vt: ViewTarget =
+    t.kind === 'commit' ? { kind: 'commit', sha: t.sha }
+      : t.kind === 'cfile' ? { kind: 'cfile', sha: t.sha, path: t.path }
+        : { kind: 'file', path: t.path, untracked: t.state === 'A' } // new: diff it against nothing
+  return inViewer($, diffViewArgs(r, vt), 'the diff')
+}
+
+async function history($, path: string | null) {
+  if (!root) {
+    $.ui.toast('toc: not a git repository')
+    return
+  }
+  return inViewer($, lazygitArgs(root, path === null ? null : relativeTo(root, path)), 'lazygit')
 }
 
 // ── repair (SPEC §7.6) ──────────────────────────────────────────────────

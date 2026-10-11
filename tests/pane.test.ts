@@ -23,7 +23,7 @@ const PANE = {
 type Files = Record<string, string>
 
 // Stand in for Claude Code: a tiny in-memory file system, git, store and env.
-function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; status?: () => string } = {}) {
+function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; status?: () => string; tmux?: string[][] } = {}) {
   const clock = mock.clock(on, { now: 1_000_000 })
   const store = new Map<string, unknown>([['bases', { [BASE]: BASE }]])
   const writes: Record<string, string> = {}
@@ -56,6 +56,15 @@ function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; sta
   })
   on('process.run', ($, e) => {
     const argv = e.argv.join(' ')
+    if (opts.tmux && (e.argv[0] === 'tmux' || e.argv[0] === 'nvim')) {
+      opts.tmux.push(e.argv)
+      if (argv === 'tmux display-message -p #{pane_id}') return { value: { exitCode: 0, stdout: '%5\n', stderr: '' } }
+      if (argv.startsWith('tmux display-message -p -t %5 ')) return { value: { exitCode: 0, stdout: '@1 200\n', stderr: '' } }
+      if (argv.startsWith('tmux display-message -p -t %9 ')) return { value: { exitCode: 0, stdout: '%9\n', stderr: '' } }
+      if (e.argv[1] === 'split-window') return { value: { exitCode: 0, stdout: '%9\n', stderr: '' } }
+      if (e.argv[1] === 'respawn-pane' || e.argv[1] === 'select-pane') return { value: { exitCode: 0, stdout: '', stderr: '' } }
+      return { value: { exitCode: 1, stdout: '', stderr: 'no server' } }
+    }
     if (!opts.git) return { value: { exitCode: 128, stdout: '', stderr: 'not a git repository' } }
     if (argv.includes('rev-parse --show-toplevel')) return { value: { exitCode: 0, stdout: BASE + '\n', stderr: '' } }
     if (argv.includes('rev-parse --git-path')) return { value: { exitCode: 0, stdout: '.git/info/exclude\n', stderr: '' } }
@@ -452,4 +461,36 @@ test('the band: a click closes a shown pane; the chord has its own button', asyn
   expect((await band.find({ key: 'toc-click' })).props.action).toBeUndefined()
   await band.press({ key: 'toc-click' })
   expect(closed).toEqual(['toc'])
+})
+
+test('Enter on a commit shows it in the pager beside Claude; v opens lazygit there', async ($, on) => {
+  const tmux: string[][] = []
+  host(on, baseFiles(), { git: true, tmux })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'key:3' })
+  await ui.press({ key: 'key:j' }) // the step's newest commit
+  await ui.press({ key: 'key:o' })
+  const split = tmux.find((a) => a[1] === 'split-window')!
+  expect(split.slice(0, 7)).toEqual(['tmux', 'split-window', '-h', '-b', '-l', '50%', '-t'])
+  expect(split).toContain('LESS=-R')
+  expect(split).toContain('DELTA_PAGER=less -R')
+  expect(split.join(' ')).toMatch(/ -P -F #\{pane_id\} git -C \/work\/proj show --stat --patch -M 06a4746\w+$/)
+  await ui.press({ key: 'key:v' }) // the viewer pane is reused
+  const again = tmux.filter((a) => a[1] === 'respawn-pane')
+  expect(again.length).toBe(1)
+  expect(again[0].slice(-4)).toEqual(['lazygit', '-p', BASE, 'log'])
+  expect(tmux.filter((a) => a[1] === 'split-window').length).toBe(1)
+})
+
+test('l unfolds a commit; Enter on one of its files shows just that file of it', async ($, on) => {
+  const tmux: string[][] = []
+  host(on, baseFiles(), { git: true, tmux })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'key:3' })
+  for (const k of ['j', 'j', 'j', 'l', 'j']) await ui.press({ key: 'key:' + k })
+  await ui.press({ key: 'key:o' })
+  const split = tmux.find((a) => a[1] === 'split-window')!
+  expect(split.join(' ')).toMatch(/git -C \/work\/proj show -M d1741b3\w+ -- dir\/old\.txt$/)
 })
