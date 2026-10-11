@@ -29,7 +29,9 @@ claude plugin install toc@claude-toc
 ```
 
 Then, once, in a session: `/toc keys` — adds `Ctrl+X T` and `Alt+j/k/h/l`
-to `~/.claude/keybindings.json` (it never overrides a key you bound).
+to `~/.claude/keybindings.json` (it never overrides a key you bound). The Alt
+keys are optional extras: in iTerm2 they need Profiles → Keys → Left Option
+key → **Esc+**; everything has a plain-letter equivalent.
 
 For development, load the working tree instead: `claude --plugin-dir ~/claude-toc`
 (edits hot-reload).
@@ -40,10 +42,13 @@ For development, load the working tree instead: `claude --plugin-dir ~/claude-to
   `DEV_PLAN.md` from a template if missing, `.toc/` for its own state (kept
   out of git via `.git/info/exclude`), and remembers the folder for this
   working directory. Claude can do the same with the `mcp__toc__activate` tool.
-- `Ctrl+X T` (or `/toc`) — focus the sidebar; again to close it.
-- In the sidebar: `j`/`k` move, `⌥j`/`⌥k` page, `⌥h`/`⌥l` switch section,
-  `h`/`l` fold (milestone, commit, or the whole section on its header),
-  `z` zoom a section, `o`/Enter open, `d` diff, `Esc` back to the prompt.
+- `Ctrl+X T` (or `/toc`) — focus the sidebar; again (from anywhere) to close it.
+- In the sidebar: `j`/`k` move and flow from one section into the next,
+  `f`/`b` page, `1`–`4` jump to a section, `h`/`l` fold (milestone, commit,
+  or the whole section on its header), `z` zoom a section, `o`/Enter open,
+  `d` diff, `q` close, `Esc` back to the prompt. Click a row's title to open
+  it (tmux needs `set -g mouse on`). `⌥j/⌥k/⌥h/⌥l` page and switch sections
+  where the terminal sends Alt.
 - Files open in one nvim per tmux window: a split beside Claude when the
   window is ≥ 220 columns, below it otherwise; later files become tabs.
 

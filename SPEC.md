@@ -175,9 +175,10 @@ from a focused pane. `/toc keys` merges those bindings into
 
 | Key | Action |
 |---|---|
-| `j` / `k` | cursor down / up within the focused section (Preview: one line) |
-| `⌥j` / `⌥k` | page down / up (also PgDn/PgUp and the wheel, via `ui.scroll`) |
-| `⌥h` / `⌥l` | focus previous / next section |
+| `j` / `k` | cursor down / up; past a section's end they flow into the next/previous section (Preview: one line) |
+| `f` / `b` | page down / up (also `⌥j`/`⌥k`, PgDn/PgUp and the wheel) |
+| `1`–`4` | jump to Context / Plan / Artifacts / Preview (also `⌥h`/`⌥l` prev/next) |
+| `q` | close the sidebar |
 | `h` / `l` | fold / unfold: milestone, commit, or the section on its header |
 | `z` | zoom the focused section to the full pane; again to restore |
 | `g` / `e` | top (section header) / end of section |
@@ -187,8 +188,11 @@ from a focused pane. `/toc keys` merges those bindings into
 | ↑ / ↓ | move the focus ring row by row (rows are buttons); at a section's edge they scroll it |
 | Esc | focus back to the prompt (Claude Code default) |
 
-The cursor is the focus ring: every row starts with a one-cell button, so a
-click selects a row and Enter opens it. Artifacts and Preview follow the
+The cursor is the focus ring: each row's title is a plain Button (as in
+`/diff`), so a click on it opens the row and Enter opens it. A Button's label
+can't be colored, only dimmed, so status color lives in the glyph before the
+title and the counters after it. Alt keys depend on the terminal (iTerm2 sends
+them only with Option as Esc+), so every Alt key has a plain-letter twin. Artifacts and Preview follow the
 cursor live. A footer row of plain buttons doubles as the key legend.
 
 ### 7.2 Commands and tool (D16, D19, D21)
@@ -199,8 +203,9 @@ cursor live. A footer row of plain buttons doubles as the key legend.
   close it if focused, open it otherwise. `/toc keys` installs the key
   bindings; `/toc refresh` forces a reload.
 - **Hotkey `Ctrl+X T`** for `/toc` (D23): a band button `≡ toc ⌃X T` with
-  `action: 'app:toggleReplTab'`; `ctrl+x t` bound to it in the `Chat`
-  context. Proven in the S1.4 spike. (`Ctrl+X Tab` only reaches the band.)
+  `action: 'app:toggleReplTab'`; `ctrl+x t` bound to it in the **Global**
+  context (a `Chat` binding is dead while the pane has focus, so it couldn't
+  close the pane). `Ctrl+X Tab` only reaches the band.
 - Tool `mcp__claude-toc__activate({dir})` — the same activation; Claude may
   call it freely (e.g. after creating or finding a `DEV_PLAN.md`).
 
@@ -219,6 +224,9 @@ cursor live. A footer row of plain buttons doubles as the key legend.
 - One nvim per **tmux window**, socket keyed by window id; started on first
   open, reused afterwards (`--server … --remote-tab`). Never hijack a nvim the
   user started.
+- Claude's tmux pane: `$TMUX_PANE` when present; otherwise (the daemon-hosted
+  sessions of 2.1.29x don't inherit it) `tmux display-message -p '#{pane_id}'`
+  on the default server — the pane its most recent client is on.
 - Split placement by width: window ≥ ~220 cols → split left of Claude's pane;
   otherwise split below (~45% height), so Claude keeps width for the docked
   sidebar.
@@ -299,3 +307,5 @@ No file watcher in the mods API, so:
 | D29 | Repair = Haiku subagent via `$.agent.spawn`, Edit tool, backup first; its hand-back is dropped |
 | D30 | Bash edits reach the ledger through a git-status snapshot around the command |
 | D31 | `/project` and the tool open the pane unfocused; `/toc` and `Ctrl+X T` focus it |
+| D32 | Every Alt key gets a plain twin: `f`/`b` page, `1`–`4` sections, `j`/`k` flow across sections; `q` closes |
+| D33 | Row titles are Buttons (clickable); color moves to glyphs and counters |

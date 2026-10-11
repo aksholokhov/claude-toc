@@ -77,7 +77,8 @@ export function transcriptExcerpt(messages: { role: string; text: string }[], ma
 // ── keybindings ─────────────────────────────────────────────────────────
 
 export const KEYBINDINGS: { context: string; key: string; action: string }[] = [
-  { context: 'Chat', key: 'ctrl+x t', action: ACTIONS.toggle },
+  // Global, not Chat: Chat bindings are inactive while the pane has focus.
+  { context: 'Global', key: 'ctrl+x t', action: ACTIONS.toggle },
   { context: 'Global', key: 'meta+j', action: ACTIONS.pagedown },
   { context: 'Global', key: 'meta+k', action: ACTIONS.pageup },
   { context: 'Global', key: 'meta+h', action: ACTIONS.prevsec },
@@ -98,6 +99,13 @@ export function mergeKeybindings(text: string | null): { text: string; added: st
   const blocks: Block[] = Array.isArray(doc.bindings) ? doc.bindings : []
   const added: string[] = []
   const conflicts: string[] = []
+  // v0.1 bound ctrl+x t in Chat; move it to Global.
+  for (const block of blocks) {
+    if (block.context === 'Chat' && block.bindings['ctrl+x t'] === ACTIONS.toggle) {
+      delete block.bindings['ctrl+x t']
+      added.push('moved ctrl+x t from Chat to Global')
+    }
+  }
   for (const b of KEYBINDINGS) {
     let block = blocks.find((x) => x.context === b.context)
     if (!block) {
@@ -113,11 +121,12 @@ export function mergeKeybindings(text: string | null): { text: string; added: st
     block.bindings[b.key] = b.action
     added.push(`${b.context} ${b.key}`)
   }
+  const kept = blocks.filter((b) => Object.keys(b.bindings).length)
   const out = {
     $schema: 'https://www.schemastore.org/claude-code-keybindings.json',
     $docs: 'https://code.claude.com/docs/en/keybindings',
     ...doc,
-    bindings: blocks,
+    bindings: kept,
   }
   return { text: JSON.stringify(out, null, 2) + '\n', added, conflicts }
 }

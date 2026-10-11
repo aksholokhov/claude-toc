@@ -74,15 +74,23 @@ export function render(v: ViewInput) {
   return el.Box({ flexDirection: 'column', children })
 }
 
-function gutter(v: ViewInput, key: string) {
-  return v.el.Button({ key: 'r:' + key, label: ' ', plain: true, onPress: v.act.row(key) })
-}
-
-function line(v: ViewInput, key: string, isCursor: boolean, parts: unknown[]) {
+// One row: colored prefix, the label as a plain Button (the click target and
+// the focus ring, as /diff's file rows do — a Button's label can't be
+// colored, only dimmed), then a colored tail.
+function line(v: ViewInput, key: string, isCursor: boolean, prefix: unknown[], label: string, dim: boolean, tail: unknown[]) {
   const { el, roles } = v
-  const props: Record<string, unknown> = { key: 'row:' + key, flexDirection: 'row', children: [gutter(v, key), el.Text({ wrap: 'truncate-end', children: parts })] }
+  const button = el.Button(dim
+    ? { key: 'r:' + key, label: label || ' ', plain: true, dimColor: true, onPress: v.act.row(key) }
+    : { key: 'r:' + key, label: label || ' ', plain: true, onPress: v.act.row(key) })
+  const children = [...prefix.map((p) => (typeof p === 'string' ? el.Text({ children: [p] }) : p)), button, ...tail]
+  const props: Record<string, unknown> = { key: 'row:' + key, flexDirection: 'row', children }
   if (isCursor && roles.sel) props.backgroundColor = roles.sel
   return el.Box(props)
+}
+
+// Plain informational line (preview placeholders): not focusable.
+function note(v: ViewInput, key: string, parts: unknown[]) {
+  return v.el.Box({ key: 'row:' + key, flexDirection: 'row', children: [v.el.Text({ wrap: 'truncate-end', children: parts })] })
 }
 
 function t(v: ViewInput, text: string, style: Record<string, unknown> = {}) {
@@ -97,13 +105,12 @@ function header(v: ViewInput, sec: number) {
         : SECTIONS[sec]
   const right = summary(v, sec)
   const shown = isShown(ui, sec)
-  const lead = shown ? '─┤ ' : '▸┤ '
-  const fill = Math.max(2, v.width - 1 - len(lead) - len(title) - 2 - len(right.text) - 1)
   const focusSec = ui.sec === sec
+  const lead = (shown ? (focusSec ? '━┥ ' : '─┤ ') : '▸┤ ')
+  // digit + lead + title + ' ├' + fill + ' ' + summary must fit the width exactly.
+  const fill = Math.max(2, v.width - 1 - len(lead) - len(title) - 2 - 1 - len(right.text) - 1)
   const isCursor = focusSec && (sec === PREV || ui.cursor[sec] === null)
-  return line(v, 'h:' + sec, isCursor, [
-    t(v, lead, { color: roles.faint }),
-    t(v, title, { bold: true, color: focusSec ? roles.accent : roles.header }),
+  return line(v, 'h:' + sec, isCursor, [t(v, (sec + 1) + lead, { color: focusSec ? roles.accent : roles.faint, bold: focusSec })], title, false, [
     t(v, ' ├' + '─'.repeat(fill) + ' ', { color: roles.faint }),
     t(v, right.text, { color: right.color }),
   ])
@@ -141,16 +148,18 @@ function summary(v: ViewInput, sec: number): { text: string; color: string } {
 
 function rowView(v: ViewInput, sec: number, r: Row) {
   const { roles, ui, data } = v
-  const w = v.width - 1
+  const w = v.width
   const isCursor = ui.sec === sec && ui.cursor[sec] === r.key
+  // leftStyle only decides dim-or-not now: the label is a Button.
   const right = (left: string, rightText: string, leftStyle: Record<string, unknown>, rightStyle: Record<string, unknown>, prefix: unknown[] = [], prefixLen = 0) => {
     const room = w - prefixLen - len(rightText) - (rightText ? 1 : 0)
-    return line(v, r.key, isCursor, [...prefix, t(v, fit(left, room), leftStyle), rightText ? t(v, ' ' + rightText, rightStyle) : ''])
+    const dim = !!leftStyle.dim
+    return line(v, r.key, isCursor, prefix, fit(left, room), dim, rightText ? [t(v, ' ' + rightText, rightStyle)] : [])
   }
   switch (r.kind) {
     case 'ctx': {
       const f = r.file
-      return right(f.name, f.exists ? age(data.now, f.mtimeMs) : 'missing', { color: f.exists ? roles.text : roles.faint }, { color: roles.dim },
+      return right(f.name, f.exists ? age(data.now, f.mtimeMs) : 'missing', { dim: !f.exists }, { color: roles.dim },
         [t(v, '▤ ', { color: f.exists ? roles.accent : roles.faint })], 2)
     }
     case 'ms': {
@@ -159,9 +168,10 @@ function rowView(v: ViewInput, sec: number, r: Row) {
       const { done, live } = progress(m.steps)
       const complete = isComplete(m)
       const active = isActive(m)
-      const style = complete ? { color: roles.doneDim } : active ? { color: roles.doing, bold: true } : { color: roles.strong, bold: true }
+      const glyphStyle = complete ? { color: roles.doneDim } : active ? { color: roles.doing, bold: true } : { color: roles.strong, bold: true }
       const glyph = isFolded(ui, plan, m.id) ? '▸ ' : '▾ '
-      return right(glyph + m.id + ' ' + m.title, done + '/' + live + (complete ? ' ✓' : '  '), style, complete ? { color: roles.doneDim } : { color: roles.dim })
+      return right(m.id + ' ' + m.title, done + '/' + live + (complete ? ' ✓' : '  '), { dim: complete }, complete ? { color: roles.doneDim } : active ? { color: roles.doing, bold: true } : { color: roles.dim },
+        [t(v, glyph, glyphStyle)], 2)
     }
     case 'step': {
       const s = r.step
@@ -169,41 +179,37 @@ function rowView(v: ViewInput, sec: number, r: Row) {
       const f = (data.files.get(s.id) ?? []).length
       const counters = (c ? '⇡' + c : '') + (f ? (c ? ' ' : '') + '+' + f : '')
       const glyphColor = { todo: roles.text, doing: roles.doing, done: roles.done, cancelled: roles.cancelled }[s.status]
-      const titleStyle =
-        s.status === 'doing' ? { color: roles.doing, bold: true }
-          : s.status === 'done' ? { color: roles.dim }
-            : s.status === 'cancelled' ? { color: roles.cancelled, italic: true }
-              : { color: roles.text }
+      const titleStyle = { dim: s.status === 'done' || s.status === 'cancelled' }
       const selected = selectedStep(ui, data) === s.id
       const mark = selected && ui.sec !== PLAN ? '›' : ' '
       return right(s.id + ' ' + s.title, counters, titleStyle, { color: roles.accent },
         [t(v, mark, { color: roles.accent }), t(v, ' ' + STATUS_GLYPH[s.status] + ' ', { color: glyphColor, bold: s.status === 'doing' })], 4)
     }
     case 'unattr':
-      return right('unattributed edits', '+' + r.count, { color: roles.dim, italic: true }, { color: roles.accent }, [t(v, '  · ', { color: roles.faint })], 4)
+      return right('unattributed edits', '+' + r.count, { dim: true }, { color: roles.accent }, [t(v, '  · ', { color: roles.faint })], 4)
     case 'issue':
-      return right(r.text, '', { color: roles.err, dimColor: r.severity === 'warn' }, {}, [t(v, '  ! ', { color: roles.err })], 4)
+      return right(r.text, '', { dim: r.severity === 'warn' }, {}, [t(v, '  ! ', { color: roles.err, bold: true })], 4)
     case 'repair':
       return r.phase === 'running'
-        ? right('haiku is repairing DEV_PLAN.md…', '', { color: roles.doing, bold: true }, {}, [t(v, '◐ ', { color: roles.doing })], 2)
-        : right('DEV_PLAN.md is broken. Repair?', 'y/n', { color: roles.err, bold: true }, { color: roles.doing, bold: true }, [t(v, '✗ ', { color: roles.err })], 2)
+        ? right('haiku is repairing DEV_PLAN.md…', '', {}, {}, [t(v, '◐ ', { color: roles.doing, bold: true })], 2)
+        : right('DEV_PLAN.md is broken. Repair?', 'y/n', {}, { color: roles.doing, bold: true }, [t(v, '✗ ', { color: roles.err, bold: true })], 2)
     case 'note':
-      return right(r.text, '', { color: roles.dim, italic: true }, {}, [t(v, '  ', {})], 2)
+      return right(r.text, '', { dim: true }, {}, ['  '], 2)
     case 'commit': {
       const c = r.commit
-      return right(c.subject, '+' + c.add + '-' + c.del, { color: roles.text }, { color: roles.dim },
+      return right(c.subject, '+' + c.add + '-' + c.del, {}, { color: roles.dim },
         [t(v, r.isOpen ? '▾ ' : '▸ ', { color: roles.faint }), t(v, c.short.slice(0, 7) + ' ', { color: roles.sha })], 2 + Math.min(7, c.short.length) + 1)
     }
     case 'cfile':
-      return right(r.path, '+' + r.add + ' -' + r.del, { color: roles.file }, { color: roles.dim }, [t(v, '    ', {})], 4)
+      return right(r.path, '+' + r.add + ' -' + r.del, {}, { color: roles.dim }, [t(v, '    ▪ ', { color: roles.file })], 6)
     case 'file': {
       const st = r.file.state
       const color = st === 'A' ? roles.add : st === 'M' ? roles.doing : st === 'D' ? roles.del : roles.dim
-      return right(r.file.rel, '', { color: st === '✓' ? roles.dim : roles.text }, {},
+      return right(r.file.rel, '', { dim: st === '✓' }, {},
         [t(v, ' ' + st + ' ', { color, bold: st !== '✓' })], 3)
     }
     case 'empty':
-      return right(r.text, '', { color: roles.faint, italic: true }, {}, [t(v, '  ', {})], 2)
+      return right(r.text, '', { dim: true }, {}, ['  '], 2)
   }
 }
 
@@ -219,8 +225,8 @@ function previewBody(v: ViewInput): unknown[] {
   const { el, roles, ui } = v
   const p = v.preview
   const n = v.alloc[PREV]
-  if (!p) return [line(v, 'pv:none', false, [t(v, '  nothing to preview', { color: roles.faint, italic: true })])]
-  if (p.error) return [line(v, 'pv:err', false, [t(v, '  ' + p.error, { color: roles.err })])]
+  if (!p) return [note(v, 'pv:none', [t(v, '  nothing to preview', { color: roles.faint, italic: true })])]
+  if (p.error) return [note(v, 'pv:err', [t(v, '  ' + p.error, { color: roles.err })])]
   let segs: Segment[] = []
   if (p.files) segs = diffPage(p.files, diffRows(p.files), ui.previewOffset, n)
   else if (p.source !== null) segs = sourcePage(p.path, p.source, ui.previewOffset, n)
@@ -241,7 +247,7 @@ function previewBody(v: ViewInput): unknown[] {
       out.push(el.Code({ key: 'pv:s:' + i, source: s.source, path: s.path, startLine: s.startLine, wrap: 'truncate-end' }))
     }
   })
-  if (!out.length) out.push(line(v, 'pv:empty', false, [t(v, '  (empty)', { color: roles.faint, italic: true })]))
+  if (!out.length) out.push(note(v, 'pv:empty', [t(v, '  (empty)', { color: roles.faint, italic: true })]))
   return out
 }
 
@@ -251,16 +257,16 @@ function legend(v: ViewInput) {
   const alt = (name: keyof typeof ACTIONS, label: string) =>
     el.Button({ key: 'act:' + name, label, plain: true, dimColor: true, action: ACTIONS[name], onPress: v.act.key(name) })
   const repairAsk = v.repair && v.repair.phase === 'ask' && v.data.plan && v.data.plan.issues.some((i) => i.severity === 'error')
-  const row1 = [hot('j', '↓'), hot('k', '↑'), hot('h', '◂'), hot('l', '▸'), hot('g', '⤒'), hot('e', '⤓'), hot('z', 'zoom')]
-  const row2 = [hot('o', 'open'), hot('d', 'diff'), alt('pagedown', '⌥j⇟'), alt('pageup', '⌥k⇞'), alt('prevsec', '⌥h'), alt('nextsec', '⌥l')]
+  const row1 = [hot('j', '↓'), hot('k', '↑'), hot('f', '⇟'), hot('b', '⇞'), hot('h', '◂'), hot('l', '▸'), hot('g', '⤒'), hot('e', '⤓')]
+  const row2 = [hot('o', 'open'), hot('d', 'diff'), hot('z', 'zoom'), hot('q', 'close')]
   if (repairAsk) row2.unshift(hot('y', 'yes'), hot('n', 'no'))
+  // Alt keys only reach us in terminals that send them (iTerm2: Option as Esc+).
+  const row3 = [hot('1', 'ctx'), hot('2', 'plan'), hot('3', 'art'), hot('4', 'prev'),
+    alt('pagedown', '⌥j'), alt('pageup', '⌥k'), alt('prevsec', '⌥h'), alt('nextsec', '⌥l')]
   return el.Box({
     key: 'legend',
     flexDirection: 'column',
-    children: [
-      el.Box({ flexDirection: 'row', columnGap: 1, children: row1 }),
-      el.Box({ flexDirection: 'row', columnGap: 1, flexWrap: 'wrap', children: row2 }),
-    ],
+    children: [row1, row2, row3].map((r) => el.Box({ flexDirection: 'row', columnGap: 1, flexWrap: 'wrap', children: r })),
   })
 }
 

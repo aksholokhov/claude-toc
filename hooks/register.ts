@@ -374,16 +374,27 @@ async function effect($, e: Effect, surface?: string) {
   if (e.kind === 'open') return openInEditor($, e.path, surface)
   if (e.kind === 'diff') return diffInEditor($, e.target, surface)
   if (e.kind === 'repair') return e.yes ? startRepair($) : dismissRepair($)
+  if (e.kind === 'close') return $.ui.close({ id: PANE })
   if (e.kind === 'scaffold') {
     const msg = await activate($, base ?? '.', { create: true })
     $.ui.log(msg.split('\n')[0])
   }
 }
 
+// Since 2.1.29x the session runs under a daemon's pty host, which doesn't
+// inherit TMUX/TMUX_PANE. Fall back to asking the default tmux server for
+// the pane its most recent client is on: the one the key was just pressed in.
+async function tmuxPane($): Promise<string | null> {
+  const fromEnv = await $.env.get('TMUX_PANE')
+  if (fromEnv) return fromEnv
+  const r = await run($, ['tmux', 'display-message', '-p', '#{pane_id}'])
+  const id = r.out.trim()
+  return r.ok && /^%\d+$/.test(id) ? id : null
+}
+
 async function openInEditor($, path: string, surface?: string) {
-  const pane = await $.env.get('TMUX_PANE')
-  const tmux = await $.env.get('TMUX')
-  if (!pane || !tmux) {
+  const pane = await tmuxPane($)
+  if (!pane) {
     await $.ui.copy(surface ? { text: path, surface } : { text: path }).catch(() => undefined)
     $.ui.toast('toc: not in tmux — copied ' + path)
     return

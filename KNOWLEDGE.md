@@ -91,3 +91,18 @@ Hard-won facts about the platform. Verified against the docs on 2026-10-10
   N diff lines is N rows.
 - In a detached `tmux -f /dev/null` server colors come out as 256-color
   approximations; real terminals with Tc get the hex palette.
+
+## First user test (2026-10-10, iTerm2 → ssh → tmux)
+- **Sessions run under a daemon (2.1.29x):** `claude` in the tmux pane is a
+  thin client; the session (and the mod) runs in a `bg-pty-host` child of
+  `claude daemon`, whose env has **no `TMUX`/`TMUX_PANE`**. Ask tmux instead:
+  `tmux display-message -p '#{pane_id}'` (default socket) returns the pane of
+  its most recent client — the one the key was pressed in.
+- A `Chat`-context chord is inactive while a pane has focus, so `Ctrl+X T`
+  couldn't close the panel from inside it. Bind it in `Global`.
+- **iTerm2's Option key isn't Alt by default**, so `⌥j/⌥k/⌥h/⌥l` never
+  arrive (Profiles → Keys → Left Option → Esc+). Give every Alt key a
+  plain-letter twin.
+- Clicks only press a **Button's label**; a one-cell gutter button was too
+  small to hit, and clicks on Text just select it ("copied"). Make the row's
+  title the Button, as `/diff` does.

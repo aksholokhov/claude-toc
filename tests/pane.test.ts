@@ -335,7 +335,7 @@ test('/toc keys merges keybindings without clobbering the user', async ($, on) =
   host(on, files)
   await start($)
   const r = await $.command.run({ command: 'toc', args: 'keys' })
-  expect(r.text).toMatch(/added Chat ctrl\+x t/)
+  expect(r.text).toMatch(/added Global ctrl\+x t/)
   expect(r.text).toMatch(/left alone \(already bound\): Global meta\+k is bound to chat:modelPicker/)
   const doc = JSON.parse(files['/home/u/.claude/keybindings.json'])
   const global = doc.bindings.find((b) => b.context === 'Global').bindings
@@ -366,4 +366,56 @@ test("the repair agent's hand-back is dropped, other peer messages pass", async 
   expect(h.store.get('repairAgents')).toEqual([])
   const other = await $.prompt.submit({ text: '<agent-message from="zzz">\nhi', origin: { kind: 'peer' } })
   expect(other).toMatchObject({ text: '<agent-message from="zzz">\nhi' })
+})
+
+test('/toc keys moves an old Chat ctrl+x t binding to Global', async ($, on) => {
+  const files = baseFiles()
+  files['/home/u/.claude/keybindings.json'] = JSON.stringify({ bindings: [{ context: 'Chat', bindings: { 'ctrl+x t': 'app:toggleReplTab' } }] })
+  host(on, files)
+  await start($)
+  await $.command.run({ command: 'toc', args: 'keys' })
+  const doc = JSON.parse(files['/home/u/.claude/keybindings.json'])
+  expect(doc.bindings.find((b) => b.context === 'Chat')).toBeUndefined()
+  expect(doc.bindings.find((b) => b.context === 'Global').bindings['ctrl+x t']).toBe('app:toggleReplTab')
+})
+
+test('j/k flow across sections; digits jump; f/b page; q closes', async ($, on) => {
+  host(on, baseFiles(), { git: true })
+  const closed: string[] = []
+  on('ui.close', ($, e) => {
+    closed.push(e.id)
+    return { value: undefined }
+  })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Context: header then 4 files (SPEC, DEV_PLAN, KNOWLEDGE, SCRATCHPAD).
+  await ui.press({ key: 'key:1' })
+  for (let i = 0; i < 5; i++) await ui.press({ key: 'key:j' })
+  let text = (await drawn(ui)).join('\n')
+  expect(text).toMatch(/2━┥ Plan/)
+  await ui.press({ key: 'key:k' })
+  text = (await drawn(ui)).join('\n')
+  expect(text).toMatch(/1━┥ Context/)
+  await ui.press({ key: 'key:4' })
+  text = (await drawn(ui)).join('\n')
+  expect(text).toMatch(/4━┥ Preview/)
+  await ui.press({ key: 'key:f' })
+  await ui.press({ key: 'key:b' })
+  await ui.press({ key: 'key:k' }) // at offset 0: back up into Artifacts
+  text = (await drawn(ui)).join('\n')
+  expect(text).toMatch(/3━┥ Artifacts/)
+  await ui.press({ key: 'key:q' })
+  expect(closed).toEqual(['toc'])
+})
+
+test('row titles are buttons, so a click opens them', async ($, on) => {
+  host(on, baseFiles())
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const step = await ui.find({ key: 'r:s:S1.1' })
+  expect(step.type).toBe('Button')
+  expect(step.props.label).toMatch(/^S1\.1 Parse things/)
+  await ui.press({ key: 'r:s:S1.1' }) // click = focus + open → Artifacts of S1.1
+  const text = (await drawn(ui)).join('\n')
+  expect(text).toMatch(/3━┥ Artifacts · S1\.1/)
 })

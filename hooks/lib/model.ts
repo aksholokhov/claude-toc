@@ -68,6 +68,7 @@ export type Effect =
   | { kind: 'diff'; target: Target }
   | { kind: 'repair'; yes: boolean }
   | { kind: 'scaffold' }
+  | { kind: 'close' }
 
 export function initialUI(): UI {
   return { sec: PLAN, zoom: null, collapsed: [], cursor: [null, null, null, null], offset: [0, 0, 0, 0], fold: {}, open: {}, step: null, previewOffset: 0 }
@@ -193,7 +194,7 @@ export function fileRowIndex(p: Preview | null, path: string): number {
 
 // ── layout ──────────────────────────────────────────────────────────────
 
-export const LEGEND_ROWS = 2
+export const LEGEND_ROWS = 3
 
 export function isShown(ui: UI, sec: number): boolean {
   return ui.zoom === null ? !ui.collapsed.includes(sec) : ui.zoom === sec
@@ -261,9 +262,25 @@ export function keepVisible(offset: number, idx: number, alloc: number, n: numbe
 
 export type Ctx = { data: Data; repair: Repair; alloc: number[]; previewRows: number; preview: Preview | null }
 
-export type Key = 'j' | 'k' | 'h' | 'l' | 'g' | 'e' | 'o' | 'd' | 'z' | 'y' | 'n' | 'pagedown' | 'pageup' | 'prevsec' | 'nextsec'
+export type Key =
+  | 'j' | 'k' | 'h' | 'l' | 'g' | 'e' | 'o' | 'd' | 'z' | 'y' | 'n' | 'q' | 'f' | 'b'
+  | '1' | '2' | '3' | '4' | 'pagedown' | 'pageup' | 'prevsec' | 'nextsec'
 
-export function press(ui: UI, key: Key, c: Ctx): { ui: UI; effect: Effect } {
+// Enter a section from the top (its header) or the bottom (its last row).
+function enter(ui: UI, sec: number, from: 'top' | 'bottom', c: Ctx): UI {
+  const next = { ...ui, sec, zoom: ui.zoom !== null ? sec : null }
+  if (sec === PREV) return { ...next, previewOffset: from === 'top' ? 0 : next.previewOffset }
+  const rows = rowsOf(sec, next, c.data, c.repair)
+  if (from === 'top' || !isShown(next, sec) || !rows.length) {
+    const cursor = next.cursor.slice()
+    cursor[sec] = null
+    return { ...next, cursor }
+  }
+  return withCursor(next, sec, rows, rows.length - 1, Math.max(1, c.alloc[sec]))
+}
+
+export function press(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } {
+  let key = pressed
   const none: Effect = { kind: 'none' }
   const sec = ui.sec
   const rows = rowsOf(sec, ui, c.data, c.repair)
@@ -271,14 +288,22 @@ export function press(ui: UI, key: Key, c: Ctx): { ui: UI; effect: Effect } {
   const alloc = Math.max(1, c.alloc[sec])
   const page = Math.max(1, alloc - 1)
 
+  if (key === 'q') return { ui, effect: { kind: 'close' } }
+  if (key === 'f') key = 'pagedown'
+  if (key === 'b') key = 'pageup'
+  if (key === '1' || key === '2' || key === '3' || key === '4') {
+    const n = Number(key) - 1
+    return { ui: enter({ ...ui, collapsed: ui.collapsed.filter((x) => x !== n) }, n, 'top', c), effect: none }
+  }
   if (key === 'y' || key === 'n') return { ui, effect: c.repair && c.repair.phase === 'ask' ? { kind: 'repair', yes: key === 'y' } : none }
-  if (key === 'prevsec' || key === 'nextsec') return { ui: { ...ui, sec: (sec + (key === 'nextsec' ? 1 : 3)) % 4 }, effect: none }
+  if (key === 'prevsec' || key === 'nextsec') return { ui: enter(ui, (sec + (key === 'nextsec' ? 1 : 3)) % 4, 'top', c), effect: none }
   if (key === 'z') return { ui: { ...ui, zoom: ui.zoom === sec ? null : sec, collapsed: ui.collapsed.filter((s) => s !== sec) }, effect: none }
 
   if (sec === PREV) {
     const max = Math.max(0, c.previewRows - alloc)
     const at = (o: number) => ({ ui: { ...ui, previewOffset: Math.max(0, Math.min(o, max)) }, effect: none })
     if (key === 'j') return at(ui.previewOffset + 1)
+    if (key === 'k' && ui.previewOffset === 0) return { ui: enter(ui, ART, 'bottom', c), effect: none }
     if (key === 'k') return at(ui.previewOffset - 1)
     if (key === 'pagedown') return at(ui.previewOffset + page)
     if (key === 'pageup') return at(ui.previewOffset - page)
@@ -292,6 +317,11 @@ export function press(ui: UI, key: Key, c: Ctx): { ui: UI; effect: Effect } {
     }
     return { ui, effect: none }
   }
+
+  // j/k flow through the sections as one list.
+  const last = isShown(ui, sec) ? rows.length - 1 : -1
+  if (key === 'j' && idx >= last) return { ui: enter(ui, sec + 1, 'top', c), effect: none }
+  if (key === 'k' && idx === -1) return { ui: sec > 0 ? enter(ui, sec - 1, 'bottom', c) : ui, effect: none }
 
   if (!isShown(ui, sec)) {
     if (key === 'l' || key === 'o') return { ui: collapse(ui, sec, false), effect: none }
