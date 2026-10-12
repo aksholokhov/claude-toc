@@ -216,8 +216,8 @@ v0.1; the larger restructures stay as later steps.
 **Deliverables**
 - [x] S11.1 Fix zoom drill + click — `o` on a step reveals Artifacts under zoom; a click reloads Preview.
 - [x] S11.2 Delete dead code — unused fields, exports, params and the keybinding migration.
-- [~] S11.3 Fix Claude-facing text — at most one [~], no grammar per turn, step size, "demonstrated".
-- [ ] S11.4 One reveal helper — the zoom/unfold rule written once, not five times.
+- [x] S11.3 Fix Claude-facing text — at most one [~], no grammar per turn, step size, "demonstrated".
+- [~] S11.4 One reveal helper — the zoom/unfold rule written once, not five times.
 - [ ] S11.5 One left-column module — nvim and viewer as one record per window, one open routine.
 - [ ] S11.6 Tests at the interface — tmux fake by operation, no argv indices; the missing cases.
 - [ ] S11.7 Row width measured once — one row helper that measures its own prefix.

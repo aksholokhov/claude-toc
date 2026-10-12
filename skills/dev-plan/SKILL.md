@@ -82,6 +82,9 @@ matrix, a migration path, rollout, open questions.
 - **Deliverables are concrete**: a file, a command, a setting, a behaviour —
   something you could point at. One sentence after the ` — `; detail goes in
   indented lines.
+- **A step is one reviewable unit**: roughly one commit that leaves the project
+  working. If a step needs several commits, split it; a milestone with more than
+  about six steps is probably two milestones.
 - **Acceptance is binary and observable**, demonstrated rather than argued:
   "with the mount stopped, the run exits non-zero and creates no archive", not
   "handles failures". Include the negative case — the thing that must NOT happen.
@@ -109,7 +112,8 @@ matrix, a migration path, rollout, open questions.
     steps take the next unused number; reordering lines is fine.
   - **At most one `[~]`** in the whole file.
   - The short title (before ` — `, an em dash) is what the sidebar shows:
-    **≤ 28 characters**.
+    **≤ 28 characters**. Type the em dash itself (—, U+2014): with a hyphen
+    or `--` the whole line becomes the title.
 - **Acceptance** checkboxes are counted (`☐2/5` beside the milestone) and never
   get IDs. A milestone shows as done only when all its steps are done and all
   its acceptance boxes are checked.
@@ -122,7 +126,8 @@ matrix, a migration path, rollout, open questions.
 - Mark a step `[~]` before starting it; flip it to `[x]` when its deliverable
   exists; then mark the next one. toc logs edits and tags commits with the `[~]`
   step.
-- Tick an acceptance box only after demonstrating it; note how in the Tests
-  section or a dated line if it isn't obvious.
+- Tick an acceptance box only after demonstrating it: you ran the check and
+  saw the result (a command, a test, a file you inspected). Reasoning about
+  the code is not a demonstration; leave the box open and say what's missing.
 - New work discovered mid-way becomes a new step with the next free ID — in the
   milestone it belongs to, not appended at the end of the file.

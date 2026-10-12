@@ -340,7 +340,7 @@ test('the activate tool returns the rules Claude should follow', async ($, on) =
   await start($)
   const r = await $.tool.call({ tool: 'mcp__toc__activate', dir: BASE })
   expect(String(r.result)).toMatch(/toc: showing \/work\/proj/)
-  expect(String(r.result)).toMatch(/Keep exactly one step \[~\]/)
+  expect(String(r.result)).toMatch(/At most one step is \[~\]/)
 })
 
 test('prompt.context adds the rules block only while active', async ($, on) => {

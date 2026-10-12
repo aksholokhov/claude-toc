@@ -163,7 +163,7 @@ done **and** every acceptance box is checked.
 **Labels.** Inside a milestone a line that is only `**Label**` (optional
 colon) starts a block. Under `**Deliverables**` — or before any label —
 checkboxes are **steps** and need an ID. Under `**Acceptance**` they are
-counted (`acc 2/5` beside the milestone). Under any other label they are
+counted (`☐2/5` beside the milestone). Under any other label they are
 ignored.
 
 **Steps.** `- [m] S<n>.<k> Short title — one-sentence description`.
@@ -274,8 +274,9 @@ wraps long lines (Code's default) and pages by screen rows, not lines (D35).
 - Never create `SPEC.md`, `KNOWLEDGE.md`, `SCRATCHPAD.md` or `CLAUDE.md`.
 
 ### 7.4 Context injection (D17)
-- While active, the mod adds a ≈150-token block for Claude: the grammar,
-  width rule, one-`[~]` rule, and "flip markers as you work". No CLAUDE.md
+- While active, the mod adds a ≈150-token block for Claude: what toc reads,
+  the ID, one-`[~]` and acceptance rules, and a pointer to the toc:dev-plan
+  skill (which holds the grammar). No CLAUDE.md
   edits (optional one-line pointer only on request).
 
 ### 7.5 Editor pane (D8, D20, D22)
