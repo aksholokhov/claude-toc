@@ -321,9 +321,25 @@ export type Key =
   | 'j' | 'k' | 'h' | 'l' | 'g' | 'e' | 'o' | 'd' | 'v' | 'p' | 'z' | 'y' | 'n' | 'q' | 'f' | 'b'
   | '1' | '2' | '3' | '4' | '5' | 'pagedown' | 'pageup' | 'prevsec' | 'nextsec'
 
+// Move to a section; under zoom, the zoom follows.
+function goTo(ui: UI, sec: number): UI {
+  return { ...ui, sec, zoom: ui.zoom !== null ? sec : null }
+}
+
+// Move to a section and make sure it is drawn: zoomed to if zoom is on, unfolded.
+function reveal(ui: UI, sec: number): UI {
+  return { ...goTo(ui, sec), collapsed: ui.collapsed.filter((s) => s !== sec) }
+}
+
+// A step (or the unattributed bucket) opened into Artifacts.
+function openStep(ui: UI, row: Row): UI {
+  const id = row.kind === 'step' ? row.step.id : UNATTRIBUTED
+  return reveal({ ...followStep(ui, row), step: id }, ART)
+}
+
 // Enter a section from the top (its header) or the bottom (its last row).
 function enter(ui: UI, sec: number, from: 'top' | 'bottom', c: Ctx): UI {
-  const next = { ...ui, sec, zoom: ui.zoom !== null ? sec : null }
+  const next = goTo(ui, sec)
   if (sec === PREV) return { ...next, previewOffset: from === 'top' ? 0 : next.previewOffset }
   const rows = rowsOf(sec, next, c.data, c.repair)
   if (from === 'top' || !isShown(next, sec) || !rows.length) {
@@ -360,7 +376,7 @@ function pressIn(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } {
   if (key === 'b') key = 'pageup'
   if (key === '1' || key === '2' || key === '3' || key === '4' || key === '5') {
     const n = Number(key) - 1
-    return { ui: enter({ ...ui, collapsed: ui.collapsed.filter((x) => x !== n) }, n, 'top', c), effect: none }
+    return { ui: enter(reveal(ui, n), n, 'top', c), effect: none }
   }
   if (key === 'y' || key === 'n') return { ui, effect: c.repair && c.repair.phase === 'ask' ? { kind: 'repair', yes: key === 'y' } : none }
   if (key === 'prevsec' || key === 'nextsec') return { ui: enter(ui, (sec + (key === 'nextsec' ? 1 : SECTIONS.length - 1)) % SECTIONS.length, 'top', c), effect: none }
@@ -437,12 +453,9 @@ function pressIn(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } {
     const back = (to: number) => ({ ui: { ...ui, sec: to }, effect: none })
     if (sec === ART && folding && !(row.kind === 'cfile' || (row.kind === 'commit' && row.isOpen))) return back(PLAN)
     if (sec === ART && !folding && (row.kind === 'cfile' || row.kind === 'file' || (row.kind === 'commit' && row.isOpen))) {
-      return { ui: { ...ui, sec: PREV, zoom: ui.zoom !== null ? PREV : null, collapsed: ui.collapsed.filter((s) => s !== PREV) }, effect: none }
+      return { ui: reveal(ui, PREV), effect: none }
     }
-    if (!folding && (row.kind === 'step' || row.kind === 'unattr')) {
-      const id = row.kind === 'step' ? row.step.id : UNATTRIBUTED
-      return { ui: { ...followStep(ui, row), step: id, sec: ART, zoom: ui.zoom !== null ? ART : null, collapsed: ui.collapsed.filter((s) => s !== ART) }, effect: none }
-    }
+    if (!folding && (row.kind === 'step' || row.kind === 'unattr')) return { ui: openStep(ui, row), effect: none }
     if (row.kind === 'ms') return { ui: { ...ui, fold: { ...ui.fold, [row.id]: folding } }, effect: none }
     if (row.kind === 'step' && folding) {
       const next = { ...ui, fold: { ...ui.fold, [row.step.milestone]: true } }
@@ -462,10 +475,7 @@ function pressIn(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } {
   if (key === 'o') {
     if (row.kind === 'ctx') return { ui, effect: row.file.exists ? { kind: 'open', path: row.file.path } : none }
     if (row.kind === 'ms') return { ui: { ...ui, fold: { ...ui.fold, [row.id]: !isFolded(ui, c.data.plan!, row.id) } }, effect: none }
-    if (row.kind === 'step' || row.kind === 'unattr') {
-      const id = row.kind === 'step' ? row.step.id : UNATTRIBUTED
-      return { ui: { ...followStep(ui, row), step: id, sec: ART, zoom: ui.zoom !== null ? ART : null, collapsed: ui.collapsed.filter((s) => s !== ART) }, effect: none }
-    }
+    if (row.kind === 'step' || row.kind === 'unattr') return { ui: openStep(ui, row), effect: none }
     if (row.kind === 'repair') return { ui, effect: row.phase === 'ask' ? { kind: 'repair', yes: true } : none }
     // A past commit is read as its change, not as today's file.
     if (row.kind === 'commit' || row.kind === 'cfile') return { ui, effect: { kind: 'view', target: targetOf(row)! } }
