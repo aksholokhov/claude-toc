@@ -13,13 +13,11 @@ export type Roles = {
   doing: string
   cancelled: string
   accent: string
-  header: string
   add: string
   del: string
   err: string
   sha: string
   file: string
-  group: string
   sel: string | undefined
 }
 
@@ -41,14 +39,14 @@ export function rolesFor(mode: Mode): Roles {
   if (!mode) {
     return {
       text: 'text', strong: 'text', dim: 'inactive', faint: 'subtle', done: 'success', doneDim: 'success', doing: 'warning',
-      cancelled: 'subtle', accent: 'suggestion', header: 'text', add: 'success', del: 'error', err: 'error',
-      sha: 'warning', file: 'suggestion', group: 'claude', sel: undefined,
+      cancelled: 'subtle', accent: 'suggestion', add: 'success', del: 'error', err: 'error',
+      sha: 'warning', file: 'suggestion', sel: undefined,
     }
   }
   const p = mode === 'dark' ? DARK : LIGHT
   return {
     text: p.fg0, strong: p.fg1, dim: p.grey1, faint: p.grey0, done: p.green, doneDim: p.greenDim, doing: p.yellow, cancelled: p.grey0,
-    accent: p.aqua, header: p.fg1, add: p.green, del: p.red, err: p.red, sha: p.orange, file: p.blue, group: p.purple,
+    accent: p.aqua, add: p.green, del: p.red, err: p.red, sha: p.orange, file: p.blue,
     sel: p.sel,
   }
 }

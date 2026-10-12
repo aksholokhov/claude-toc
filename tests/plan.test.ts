@@ -34,14 +34,13 @@ Prose is ignored.
 \`\`\`
 `
 
-test('parses milestones, steps, notes, groups and front matter', () => {
+test('parses milestones, steps, notes and front matter', () => {
   const plan = parsePlan(GOOD)
   expect(plan.context).toEqual(['SPEC.md', 'DEV_PLAN.md', 'KNOWLEDGE.md'])
   expect(plan.milestones.map((m) => m.id)).toEqual(['M1', 'M2'])
   const [m1, m2] = plan.milestones
   expect(m1.steps.map((s) => s.id + ':' + s.status)).toEqual(['S1.1:done', 'S1.2:doing', 'S1.3:cancelled', 'S1.4:todo'])
   expect(m1.steps[0].notes).toEqual(['a note', 'another note'])
-  expect(m1.steps[2].group).toBe('Group')
   expect(m2.steps.map((s) => s.id)).toEqual(['S2.1'])
   expect(activeStep(plan)?.id).toBe('S1.2')
   expect(plan.issues.filter((i) => i.severity === 'error').map((i) => i.code)).toEqual(['orphan-step'])
@@ -133,7 +132,7 @@ test('v2: milestones by heading, labels, acceptance counted, prose ignored', () 
   expect(m1.steps[0].title).toBe('Parse things')
   expect(m1.steps[0].notes).toEqual(['the parser, pure.', 'More detail on the next line.', 'and a sub-bullet'])
   expect([m1.steps[0].line, m1.steps[0].end]).toEqual([17, 19])
-  expect(m1.steps[2].group).toBe('A group')
+  expect(m1.steps[2].id).toBe('S1.3') // a deeper heading doesn't end the milestone
   expect(m1.acceptance).toEqual({ done: 1, total: 2 })
   expect(isComplete(m1)).toBe(false)
   expect([m1.line, m1.end]).toEqual([13, 30])

@@ -390,23 +390,6 @@ test("the repair agent's hand-back is dropped, other peer messages pass", async 
   expect(other).toMatchObject({ text: '<agent-message from="zzz">\nhi' })
 })
 
-test('/toc keys moves an old Chat ctrl+x t binding to Global', async ($, on) => {
-  const files = baseFiles()
-  files['/home/u/.claude/keybindings.json'] = JSON.stringify({ bindings: [
-    { context: 'Chat', bindings: { 'ctrl+x t': 'app:toggleReplTab' } },
-    { context: 'Global', bindings: { 'meta+j': 'app:toggleDiffNoiseFilter', 'meta+x': 'app:toggleDiffPreSession' } },
-  ] })
-  host(on, files)
-  await start($)
-  await $.command.run({ command: 'toc', args: 'keys' })
-  const doc = JSON.parse(files['/home/u/.claude/keybindings.json'])
-  expect(doc.bindings.find((b) => b.context === 'Chat')).toBeUndefined()
-  const global = doc.bindings.find((b) => b.context === 'Global').bindings
-  expect(global['ctrl+x t']).toBe('strip:jump1') // off app:toggleReplTab: Claude's own tab switch
-  expect(global['meta+j']).toBe('strip:jump2')
-  expect(global['meta+x']).toBe('app:toggleDiffPreSession') // the user's own key, left alone
-})
-
 test('j/k flow across sections; digits jump; f/b page; q closes', async ($, on) => {
   host(on, baseFiles(), { git: true })
   const closed: string[] = []

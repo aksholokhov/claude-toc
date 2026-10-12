@@ -26,8 +26,10 @@ export function rootArgs(dir: string): string[] {
 }
 
 // Only commits whose message has a Plan-Step line; numstat for their files.
-export function logArgs(root: string, limit = 2000): string[] {
-  return ['git', '-C', root, 'log', '-E', `--grep=^${TRAILER}: `, `--format=${LOG_FORMAT}`, '--numstat', '--no-color', '-n', String(limit)]
+const LOG_LIMIT = 2000
+
+export function logArgs(root: string): string[] {
+  return ['git', '-C', root, 'log', '-E', `--grep=^${TRAILER}: `, `--format=${LOG_FORMAT}`, '--numstat', '--no-color', '-n', String(LOG_LIMIT)]
 }
 
 export function statusArgs(root: string): string[] {

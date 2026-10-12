@@ -7,7 +7,7 @@ import {
   ART, CTX, KEYS, PLAN, PREV, SECTIONS, isFolded, isShown, planRows, previewCosts, previewTarget, rowsOf, selectedStep, targetTitle,
 } from './model.ts'
 import type { Data, Preview, Repair, Row, UI } from './model.ts'
-import { isActive, isComplete, progress } from './plan.ts'
+import { errorsOf, isActive, isComplete, progress } from './plan.ts'
 import type { Roles } from './palette.ts'
 
 type El = { Box: Function; Text: Function; Button: Function; Code: Function }
@@ -29,7 +29,7 @@ export type ViewInput = {
 // Keys a mod can't get as hotkeys arrive through these spare engine actions
 // (KNOWLEDGE.md: Alt bindings in the Global context press the Button). They
 // must have no engine handler: app:toggleReplTab (v0.1) is Claude's "switch
-// tab" as soon as a second pane such as /diff is open, and took the chord.
+// tab" as soon as a second pane such as /diff is open (KNOWLEDGE.md).
 export const ACTIONS = {
   toggle: 'strip:jump1',
   pagedown: 'strip:jump2',
@@ -38,22 +38,15 @@ export const ACTIONS = {
   nextsec: 'permission:toggleDebug',
 } as const
 
-// What earlier versions bound, for /toc keys to move off.
-export const OLD_ACTIONS: Record<string, string> = {
-  'app:toggleReplTab': 'toggle',
-  'app:toggleDiffNoiseFilter': 'pagedown',
-  'app:toggleDiffPreSession': 'pageup',
-}
+const STATUS_GLYPH = { todo: '○', doing: '◐', done: '✓', cancelled: '✗' } as const
 
-export const STATUS_GLYPH = { todo: '○', doing: '◐', done: '✓', cancelled: '✗' } as const
-
-export function fit(s: string, n: number): string {
+function fit(s: string, n: number): string {
   if (n <= 0) return ''
   const chars = Array.from(s)
   return chars.length > n ? chars.slice(0, Math.max(0, n - 1)).join('') + '…' : s + ' '.repeat(n - chars.length)
 }
 
-export function age(now: number, mtimeMs: number): string {
+function age(now: number, mtimeMs: number): string {
   const s = Math.max(0, Math.round((now - mtimeMs) / 1000))
   if (s < 60) return s + 's'
   if (s < 3600) return Math.round(s / 60) + 'm'
@@ -134,7 +127,7 @@ function summary(v: ViewInput, sec: number): { text: string; color: string } {
   if (sec === PLAN) {
     const plan = data.plan
     if (!plan) return { text: 'missing', color: roles.err }
-    const errors = plan.issues.filter((i) => i.severity === 'error').length
+    const errors = errorsOf(plan).length
     if (errors) return { text: '✗ ' + errors + ' issue' + (errors > 1 ? 's' : ''), color: roles.err }
     const { done, live } = progress(plan.milestones.flatMap((m) => m.steps))
     const filled = live ? Math.round((done / live) * 6) : 0
@@ -299,7 +292,7 @@ export function legendRows(width: number, repairAsk: boolean): LegendItem[][] {
 }
 
 export function isRepairAsk(repair: Repair, data: Data): boolean {
-  return !!(repair && repair.phase === 'ask' && data.plan && data.plan.issues.some((i) => i.severity === 'error'))
+  return !!(repair && repair.phase === 'ask' && errorsOf(data.plan).length > 0)
 }
 
 // The key buttons are drawn even while Keys is folded: a mod's hotkeys are
@@ -322,7 +315,7 @@ export function drawnOrder(ui: UI, data: Data, repair: Repair, alloc: number[]):
   for (let sec = 0; sec < SECTIONS.length; sec++) {
     out.push('h:' + sec)
     if (!isShown(ui, sec) || sec === PREV) continue
-    const rows = sec === PLAN ? planRows(ui, data, repair) : rowsOf(sec, ui, data, repair)
+    const rows = rowsOf(sec, ui, data, repair)
     rows.slice(ui.offset[sec], ui.offset[sec] + alloc[sec]).forEach((r) => out.push(r.key))
   }
   return out

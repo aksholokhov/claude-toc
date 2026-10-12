@@ -4,7 +4,7 @@
 
 import { parseDiff } from './lib/diff.ts'
 import {
-  aliveArgs, diffViewArgs, isPaneAlive, lazygitArgs, nvimArgs, leftSplitArgs, paneAliveArgs, parseTmuxInfo, remoteTabArgs, respawnArgs, selectPaneArgs, socketPath,
+  aliveArgs, diffViewArgs, isPaneAlive, lazygitArgs, nvimArgs, leftSplitArgs, paneAliveArgs, parseWindowId, remoteTabArgs, respawnArgs, selectPaneArgs, socketPath,
   tmuxInfoArgs, viewerEnv,
 } from './lib/editor.ts'
 import type { ViewTarget } from './lib/editor.ts'
@@ -13,14 +13,14 @@ import {
   supportsTrailer, withTrailer,
 } from './lib/git.ts'
 import type { Snapshot } from './lib/git.ts'
-import { appendEntry, editedPath, filesByStep, LEDGER_FILE, parseLedger, WRITE_TOOLS } from './lib/ledger.ts'
+import { appendEntry, editedPath, filesByStep, LEDGER_DIR, LEDGER_FILE, parseLedger, WRITE_TOOLS } from './lib/ledger.ts'
 import {
-  ART, PLAN, PREV, UNATTRIBUTED, allocate, fileRowIndex, focusRow, initialUI, isShown, joinPath, planSignature,
+  PLAN, PREV, allocate, fileRowIndex, focusRow, initialUI, isShown, joinPath, planSignature,
   press, previewCosts, previewRowCount, previewTarget, reconcile, rowsOf, targetKey,
 } from './lib/model.ts'
 import type { ArtFile, CtxFile, Data, Effect, Key, Preview, Repair, Target, UI } from './lib/model.ts'
 import { parseMode, rolesFor } from './lib/palette.ts'
-import { activeStep, orphanTrailers, parsePlan } from './lib/plan.ts'
+import { activeStep, errorsOf, orphanTrailers, parsePlan } from './lib/plan.ts'
 import { REPAIR_SYSTEM, devPlanTemplate, mergeKeybindings, repairTask, rulesBlock, transcriptExcerpt } from './lib/text.ts'
 import { ACTIONS, drawnOrder, isRepairAsk, legendRows, render } from './lib/view.ts'
 
@@ -168,7 +168,7 @@ async function load($) {
   data = { base: b, root, plan, planPath, context, commits, files, now: await $.clock.now() }
 
   const sig = planSignature(plan)
-  const broken = !!plan && plan.issues.some((i) => i.severity === 'error')
+  const broken = errorsOf(plan).length > 0
   if (!broken) repair = repair && repair.phase === 'running' ? repair : null
   else if (!repair || (repair.phase === 'dismissed' && repair.sig !== sig)) repair = { phase: 'ask', sig }
 
@@ -243,7 +243,7 @@ async function record($, paths: string[]) {
   // Knowledge files have their own section; logging them would only fill
   // the unattributed bucket with plan edits.
   const known = new Set((data?.context ?? []).map((c) => c.path).concat(abs(base, PLAN_FILE)))
-  const keep = paths.filter((p) => under(scope, p) && !under(abs(base!, '.toc'), p) && !known.has(p))
+  const keep = paths.filter((p) => under(scope, p) && !under(abs(base!, LEDGER_DIR), p) && !known.has(p))
   if (!keep.length) return
   const step = await activeStepId($)
   const ledgerPath = abs(base, LEDGER_FILE)
@@ -297,7 +297,7 @@ async function activate($, dir: string, opts: { create: boolean }): Promise<stri
     const ex = await run($, ['git', '-C', root, 'rev-parse', '--git-path', 'info/exclude'], root)
     if (ex.ok) {
       const exPath = abs(root, ex.out.trim())
-      const rel = relativeTo(root, abs(target, '.toc'))
+      const rel = relativeTo(root, abs(target, LEDGER_DIR))
       const pattern = '/' + rel.replace(/^\/+/, '') + '/'
       const cur = (await readText($, exPath)) ?? ''
       if (!cur.split('\n').includes(pattern)) {
@@ -370,7 +370,7 @@ async function installKeys($): Promise<string> {
 // cursor itself first (a click).
 async function handleKey($, key: Key, surface?: string, before: UI = ui) {
   if (!data) return
-  const r = press(ui, key, { data, repair, alloc: alloc(), previewCosts: previewCosts(preview, width), preview })
+  const r = press(ui, key, { data, repair, alloc: alloc(), previewCosts: previewCosts(preview, width) })
   ui = r.ui
   if (shownKey(before) !== shownKey(ui)) await loadPreview($)
   $.ui.invalidate('ui.render')
@@ -425,12 +425,12 @@ async function claudeWindow($, fallback: () => Promise<void>) {
     await fallback()
     return null
   }
-  const info = parseTmuxInfo((await run($, tmuxInfoArgs(pane))).out)
-  if (!info) {
+  const windowId = parseWindowId((await run($, tmuxInfoArgs(pane))).out)
+  if (!windowId) {
     $.ui.toast('toc: could not read the tmux window')
     return null
   }
-  return { pane, windowId: info.windowId }
+  return { pane, windowId }
 }
 
 // A pane we started in this window, if it's still there.
@@ -566,7 +566,7 @@ async function history($, path: string | null) {
 async function startRepair($) {
   if (!data || !data.plan || !base) return
   const text = (await readText($, data.planPath)) ?? ''
-  await $.fs.write(abs(base, '.toc/DEV_PLAN.md.bak'), text)
+  await $.fs.write(abs(base, LEDGER_DIR + '/DEV_PLAN.md.bak'), text)
   let excerpt = ''
   try {
     excerpt = transcriptExcerpt((await $.session.messages()).slice(-40))

@@ -2,7 +2,7 @@
 // repair agent's prompts, and the keybindings toc needs.
 
 import type { Issue } from './plan.ts'
-import { ACTIONS, OLD_ACTIONS } from './view.ts'
+import { ACTIONS } from './view.ts'
 
 // The machine part of DEV_PLAN.md (SPEC §5). Everything else is prose.
 export const GRAMMAR = `### M<n> — Title            milestone (H3 under "## Milestones"; runs to the next H3/H2)
@@ -72,7 +72,7 @@ Rules for the repair:
 Use the Edit tool on the file. Finish with one line: "Repaired: <what changed>".`
 
 export function repairTask(path: string, issues: Issue[], usedIds: string[], excerpt: string): string {
-  const list = issues.filter((i) => i.severity === 'error').map((i) => `- line ${i.line}: ${i.message} [${i.code}]`).join('\n')
+  const list = issues.map((i) => `- line ${i.line}: ${i.message} [${i.code}]`).join('\n')
   return `Repair ${path}.
 
 Issues the parser found:
@@ -84,10 +84,12 @@ Recent conversation (newest last), to judge which step is really in progress:
 ${excerpt || '(none)'}`
 }
 
-export function transcriptExcerpt(messages: { role: string; text: string }[], maxChars = 6000): string {
+const EXCERPT_CHARS = 6000
+
+export function transcriptExcerpt(messages: { role: string; text: string }[]): string {
   const lines: string[] = []
   let used = 0
-  for (let i = messages.length - 1; i >= 0 && used < maxChars; i--) {
+  for (let i = messages.length - 1; i >= 0 && used < EXCERPT_CHARS; i--) {
     const m = messages[i]
     const text = (m.text ?? '').replace(/\s+/g, ' ').trim()
     if (!text) continue
@@ -123,17 +125,6 @@ export function mergeKeybindings(text: string | null): { text: string; added: st
   const blocks: Block[] = Array.isArray(doc.bindings) ? doc.bindings : []
   const added: string[] = []
   const conflicts: string[] = []
-  // v0.1 bound ctrl+x t in Chat, and used actions the engine handles once
-  // a second pane is open; drop those so the loop below rebinds them.
-  for (const block of blocks) {
-    for (const [key, action] of Object.entries(block.bindings)) {
-      const was = typeof action === 'string' ? OLD_ACTIONS[action] : undefined
-      const ours = KEYBINDINGS.find((k) => k.key === key && k.action === ACTIONS[was as keyof typeof ACTIONS])
-      if (!was || !ours) continue
-      delete block.bindings[key]
-      added.push('moved ' + key + ' off ' + action)
-    }
-  }
   for (const b of KEYBINDINGS) {
     let block = blocks.find((x) => x.context === b.context)
     if (!block) {
@@ -149,12 +140,11 @@ export function mergeKeybindings(text: string | null): { text: string; added: st
     block.bindings[b.key] = b.action
     added.push(`${b.context} ${b.key}`)
   }
-  const kept = blocks.filter((b) => Object.keys(b.bindings).length)
   const out = {
     $schema: 'https://www.schemastore.org/claude-code-keybindings.json',
     $docs: 'https://code.claude.com/docs/en/keybindings',
     ...doc,
-    bindings: kept,
+    bindings: blocks,
   }
   return { text: JSON.stringify(out, null, 2) + '\n', added, conflicts }
 }

@@ -1,15 +1,14 @@
 // The editor half (SPEC §7.5): one nvim per tmux window, reached over a
 // socket; files open as tabs. Pure argv builders — register.ts runs them.
 
-export type TmuxInfo = { windowId: string; windowWidth: number }
 
 export function tmuxInfoArgs(pane: string): string[] {
-  return ['tmux', 'display-message', '-p', '-t', pane, '#{window_id} #{window_width}']
+  return ['tmux', 'display-message', '-p', '-t', pane, '#{window_id}']
 }
 
-export function parseTmuxInfo(out: string): TmuxInfo | null {
-  const m = /^(@\d+)\s+(\d+)/.exec(out.trim())
-  return m ? { windowId: m[1], windowWidth: Number(m[2]) } : null
+export function parseWindowId(out: string): string | null {
+  const m = /^(@\d+)/.exec(out.trim())
+  return m ? m[1] : null
 }
 
 export function socketPath(runtimeDir: string, windowId: string): string {

@@ -3,7 +3,7 @@
 import type { Commit, FileState } from './git.ts'
 import type { DiffFile } from './diff.ts'
 import { diffCosts, diffRows, fitCount, lastOffset, pageBack, sourceCosts, sourceRowCount } from './diff.ts'
-import { activeStep, allSteps, findStep, hasErrors, isActive, isComplete } from './plan.ts'
+import { activeStep, allSteps, errorsOf, findStep, isActive, isComplete } from './plan.ts'
 import type { Plan, Step } from './plan.ts'
 
 export const SECTIONS = ['Context', 'Plan', 'Artifacts', 'Preview', 'Keys'] as const
@@ -103,7 +103,7 @@ export function planRows(ui: UI, data: Data, repair: Repair): Row[] {
   const plan = data.plan
   if (!plan) return [{ key: 'p:none', kind: 'empty', text: 'no DEV_PLAN.md: run /project' }]
   const rows: Row[] = []
-  const errors = plan.issues.filter((i) => i.severity === 'error')
+  const errors = errorsOf(plan)
   if (errors.length && repair && repair.phase !== 'dismissed') {
     rows.push({ key: 'p:repair', kind: 'repair', phase: repair.phase, count: errors.length })
   }
@@ -121,12 +121,12 @@ export function planRows(ui: UI, data: Data, repair: Repair): Row[] {
   return rows
 }
 
-export function isCommitOpen(ui: UI, commits: Commit[], sha: string): boolean {
+function isCommitOpen(ui: UI, commits: Commit[], sha: string): boolean {
   if (sha in ui.open) return ui.open[sha]
   return commits.length > 0 && commits[0].sha === sha
 }
 
-export function artRows(ui: UI, data: Data): Row[] {
+function artRows(ui: UI, data: Data): Row[] {
   const id = selectedStep(ui, data)
   if (id === null) return [{ key: 'a:none', kind: 'empty', text: 'select a step' }]
   const rows: Row[] = []
@@ -148,7 +148,7 @@ export function artRows(ui: UI, data: Data): Row[] {
   return rows
 }
 
-export function ctxRows(data: Data): Row[] {
+function ctxRows(data: Data): Row[] {
   return data.context.map((f) => ({ key: 'c:' + f.name, kind: 'ctx', file: f }) as Row)
 }
 
@@ -161,7 +161,7 @@ export function rowsOf(sec: number, ui: UI, data: Data, repair: Repair): Row[] {
 
 // ── preview target ──────────────────────────────────────────────────────
 
-export function targetOf(row: Row | undefined): Target | null {
+function targetOf(row: Row | undefined): Target | null {
   if (!row) return null
   if (row.kind === 'commit') return { kind: 'commit', sha: row.commit.sha, short: row.commit.short }
   if (row.kind === 'cfile') return { kind: 'cfile', sha: row.commit.sha, short: row.commit.short, path: row.path }
@@ -172,7 +172,7 @@ export function targetOf(row: Row | undefined): Target | null {
 const NOTE_ROWS = 3
 
 // A milestone's or step's lines in DEV_PLAN.md.
-export function briefOf(plan: Plan | null, id: string | null): Target | null {
+function briefOf(plan: Plan | null, id: string | null): Target | null {
   if (!plan || id === null) return null
   const m = plan.milestones.find((x) => x.id === id)
   if (m) return { kind: 'brief', id, from: m.line, to: m.end }
@@ -218,7 +218,7 @@ export function previewRowCount(p: Preview | null): number {
 
 // Cells Code's gutter takes beside a line, measured live on 2.1.296: the
 // line number padded by one, a space, then the +/-/space marker for a diff.
-export function gutterWidth(p: Preview): number {
+function gutterWidth(p: Preview): number {
   if (p.files) {
     const top = Math.max(1, ...p.files.flatMap((f) => f.hunks.map((h) => Math.max(h.oldStart, h.newStart) + h.lines.length)))
     return String(top).length + 3
@@ -246,7 +246,7 @@ export function fileRowIndex(p: Preview | null, path: string): number {
 
 // ── layout ──────────────────────────────────────────────────────────────
 
-export const LEGEND_ROWS = 3
+const LEGEND_ROWS = 3
 const ALL = SECTIONS.map((_, i) => i)
 
 export function isShown(ui: UI, sec: number): boolean {
@@ -306,7 +306,7 @@ function followStep(ui: UI, row: Row | undefined): UI {
   return { ...ui, step: id, cursor, offset, previewOffset: 0 }
 }
 
-export function keepVisible(offset: number, idx: number, alloc: number, n: number): number {
+function keepVisible(offset: number, idx: number, alloc: number, n: number): number {
   let o = offset
   if (idx >= 0) {
     if (idx < o) o = idx
@@ -315,7 +315,7 @@ export function keepVisible(offset: number, idx: number, alloc: number, n: numbe
   return Math.max(0, Math.min(o, Math.max(0, n - alloc)))
 }
 
-export type Ctx = { data: Data; repair: Repair; alloc: number[]; previewCosts: number[]; preview: Preview | null }
+export type Ctx = { data: Data; repair: Repair; alloc: number[]; previewCosts: number[] }
 
 export type Key =
   | 'j' | 'k' | 'h' | 'l' | 'g' | 'e' | 'o' | 'd' | 'v' | 'p' | 'z' | 'y' | 'n' | 'q' | 'f' | 'b'
@@ -546,9 +546,5 @@ export function reconcile(ui: UI, data: Data, repair: Repair): UI {
 
 export function planSignature(plan: Plan | null): string {
   if (!plan) return 'none'
-  return plan.issues.filter((i) => i.severity === 'error').map((i) => i.code + i.line).join('|')
-}
-
-export function planErrorCount(plan: Plan | null): number {
-  return plan && hasErrors(plan) ? plan.issues.filter((i) => i.severity === 'error').length : 0
+  return errorsOf(plan).map((i) => i.code + i.line).join('|')
 }

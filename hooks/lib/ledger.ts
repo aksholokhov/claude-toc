@@ -46,6 +46,6 @@ export const WRITE_TOOLS = ['Write', 'Edit', 'NotebookEdit', 'MultiEdit']
 export function editedPath(toolInput: unknown): string | null {
   if (!toolInput || typeof toolInput !== 'object') return null
   const t = toolInput as Record<string, unknown>
-  const p = t.file_path ?? t.notebook_path ?? t.path
+  const p = t.file_path ?? t.notebook_path
   return typeof p === 'string' ? p : null
 }

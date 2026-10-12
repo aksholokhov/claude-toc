@@ -2,7 +2,7 @@
 // text in, Plan out. Only milestone headings, label lines and checkboxes
 // inside milestones are read; everything else is prose for people.
 
-export type Status = 'todo' | 'doing' | 'done' | 'cancelled'
+type Status = 'todo' | 'doing' | 'done' | 'cancelled'
 
 export type Step = {
   id: string
@@ -12,7 +12,6 @@ export type Step = {
   line: number
   end: number
   milestone: string
-  group?: string
 }
 
 export type Milestone = {
@@ -24,7 +23,7 @@ export type Milestone = {
   acceptance: { done: number; total: number }
 }
 
-export type IssueCode =
+type IssueCode =
   | 'dup-id'
   | 'multi-doing'
   | 'bad-marker'
@@ -78,7 +77,6 @@ export function parsePlan(text: string): Plan {
   let milestone: Milestone | null = null
   let level = 0
   let label = ''
-  let group: string | undefined
   let step: Step | null = null
   let inComment = false
   let inFence = false
@@ -122,7 +120,6 @@ export function parsePlan(text: string): Plan {
       milestones.push(milestone)
       level = m[1].length
       label = ''
-      group = undefined
       step = null
       lastText = lineNo
       continue
@@ -131,14 +128,13 @@ export function parsePlan(text: string): Plan {
     if (h) {
       step = null
       if (milestone && h[1].length > level) {
-        group = h[2] // deeper than the milestone: a visual group inside it
+        // Deeper than the milestone: a heading for people, inside it.
         label = ''
         lastText = lineNo
         continue
       }
       close(lastText)
       milestone = null
-      group = undefined
       label = ''
       continue
     }
@@ -175,7 +171,7 @@ export function parsePlan(text: string): Plan {
         step = null
         continue
       }
-      step = { id, status: status ?? 'todo', title, notes: desc ? [desc] : [], line: lineNo, end: lineNo, milestone: milestone.id, group }
+      step = { id, status: status ?? 'todo', title, notes: desc ? [desc] : [], line: lineNo, end: lineNo, milestone: milestone.id }
       milestone.steps.push(step)
       continue
     }
@@ -204,7 +200,7 @@ export function parsePlan(text: string): Plan {
   }
   close(lastText)
 
-  const doing = milestones.flatMap((ms) => ms.steps).filter((st) => st.status === 'doing')
+  const doing = milestones.flatMap((ms) => ms.steps).filter((st) => st.status === 'doing') // allSteps needs a Plan
   if (doing.length > 1) {
     issues.push(
       issue('multi-doing', 'error', doing[1].line, `${doing.length} steps in progress: ${doing.map((d) => d.id).join(', ')}`),
@@ -272,8 +268,9 @@ export function findStep(plan: Plan, id: string): Step | null {
   return allSteps(plan).find((s) => s.id === id) ?? null
 }
 
-export function hasErrors(plan: Plan): boolean {
-  return plan.issues.some((i) => i.severity === 'error')
+// What "broken" means: the repair offer and the red header both use this.
+export function errorsOf(plan: Plan | null): Issue[] {
+  return plan ? plan.issues.filter((i) => i.severity === 'error') : []
 }
 
 export function progress(steps: Step[]): { done: number; live: number } {
@@ -285,8 +282,7 @@ export function progress(steps: Step[]): { done: number; live: number } {
 // Done when every live step is done and every acceptance box is checked.
 export function isComplete(m: Milestone): boolean {
   const { done, live } = progress(m.steps)
-  const steps = live > 0 ? done === live : m.steps.length > 0
-  return steps && m.acceptance.done === m.acceptance.total
+  return m.steps.length > 0 && done === live && m.acceptance.done === m.acceptance.total
 }
 
 export function isActive(m: Milestone): boolean {
