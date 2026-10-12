@@ -2,6 +2,10 @@
   "name": "toc",
   "version": "0.1.0",
   "description": "A table of contents for long Claude Code work: a sidebar with the project's knowledge files, the DEV_PLAN.md progress tree, and each step's commits, files and diffs.",
-  "author": { "name": "Aleksei Sholokhov" },
-  "license": "MIT"
+  "author": {
+    "name": "Aleksei Sholokhov"
+  },
+  "license": "GPL-3.0-only",
+  "homepage": "https://github.com/aksholokhov/claude-toc",
+  "repository": "https://github.com/aksholokhov/claude-toc"
 }

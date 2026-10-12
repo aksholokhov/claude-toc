@@ -7,8 +7,8 @@ skill); all other text is for people. Step IDs are stable, one [~] at a time. --
 
 # claude-toc — dev plan
 
-> **Status:** v0.1 feature-complete and user-tested; review cleanups (M11) before the first push.
-> Plan format v2 landed 2026-10-11. Not yet pushed or tagged.
+> **Status:** v0.1 feature-complete and user-tested; on GitHub since 2026-10-11, not yet tagged.
+> Plan format v2 landed 2026-10-11.
 > **Goal:** a table of contents for long Claude Code sessions — a sidebar showing
 > where the project's knowledge lives, how far the plan has got, and which commits
 > and files each step produced — that runs on a Claude Pro login, with no API key.
@@ -234,9 +234,9 @@ from the dotfiles.
 
 **Deliverables**
 - [x] S7.1 Dogfood on this repo — four test rounds; the user: "All works!" (2026-10-11).
-- [x] S7.2 README + screenshots — install, keys, the grammar.
+- [x] S7.2 README + screenshots — Qud-style banner, a recorded walkthrough GIF, screenshots.
 - [x] S7.3 Record KNOWLEDGE findings — every platform surprise, dated.
-- [ ] S7.4 GitHub remote + tag v0.1 — once the user provides the remote.
+- [~] S7.4 GitHub remote + tag v0.1 — remote attached and pushed (2026-10-11); tag pending.
 
 **Acceptance**
 - [x] The user's test batch passes with no open bug.
