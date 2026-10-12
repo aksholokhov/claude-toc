@@ -593,3 +593,13 @@ test('the brief: moving in Plan shows the row\'s lines of DEV_PLAN.md in Preview
   text = (await drawn(ui)).join('\n')
   expect(text).not.toMatch(/brief/)
 })
+
+test('o on a step while Plan is zoomed reveals Artifacts instead of a hidden section', async ($, on) => {
+  host(on, baseFiles())
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  for (const k of ['2', 'z', 'j', 'j', 'j', 'o']) await ui.press({ key: 'key:' + k }) // zoom Plan, S1.2, open
+  const text = (await drawn(ui)).join('\n')
+  expect(text).toMatch(/3━┥ Artifacts · S1\.2/)
+  expect(text).toMatch(/src\/a\.ts/) // drawn, not an empty zoomed-away section
+})

@@ -7,7 +7,7 @@ skill); all other text is for people. Step IDs are stable, one [~] at a time. --
 
 # claude-toc — dev plan
 
-> **Status:** v0.1 feature-complete; in its fourth round of user testing (S7.1).
+> **Status:** v0.1 feature-complete and user-tested; review cleanups (M11) before the first push.
 > Plan format v2 landed 2026-10-11. Not yet pushed or tagged.
 > **Goal:** a table of contents for long Claude Code sessions — a sidebar showing
 > where the project's knowledge lives, how far the plan has got, and which commits
@@ -167,7 +167,7 @@ Claude's width.
 
 **Acceptance**
 - [x] A second file opens as a tab in the same nvim.
-- [ ] Quitting the viewer or nvim gives the keys back to toc (user check).
+- [x] Quitting the viewer or nvim gives the keys back to toc (user check).
 - [x] A closed pane is never used as a split target ("can't find pane").
 
 ### M9 — Plan repair
@@ -199,7 +199,7 @@ deliverables, acceptance, tests — and toc reads only a small, fixed part of it
 
 **Acceptance**
 - [x] This file parses without issues, and every step ID in git history still exists.
-- [ ] The user catches up on a step from the sidebar alone (brief + Artifacts).
+- [x] The user catches up on a step from the sidebar alone (brief + Artifacts).
 - [ ] Claude, asked to "write a dev plan and start toc" in a fresh folder, produces a
       v2 plan that parses cleanly and activates toc.
 
@@ -207,18 +207,39 @@ deliverables, acceptance, tests — and toc reads only a small, fixed part of it
 1. `claude plugin test` — v2 fixtures: labels, ignored checkboxes, line ranges.
 2. In this window: select M10, then S10.3, in Plan; Preview shows their lines.
 
+### M11 — Review cleanups
+An eight-block review (Haiku reviewers, findings checked by hand) found one
+real bug, a layer of dead code, prompt text that pushes Claude the wrong way,
+and logic written twice that had already drifted. This pays that down before
+v0.1; the larger restructures stay as later steps.
+
+**Deliverables**
+- [x] S11.1 Fix zoom drill + click — `o` on a step reveals Artifacts under zoom; a click reloads Preview.
+- [~] S11.2 Delete dead code — unused fields, exports, params and the keybinding migration.
+- [ ] S11.3 Fix Claude-facing text — at most one [~], no grammar per turn, step size, "demonstrated".
+- [ ] S11.4 One reveal helper — the zoom/unfold rule written once, not five times.
+- [ ] S11.5 One left-column module — nvim and viewer as one record per window, one open routine.
+- [ ] S11.6 Tests at the interface — tmux fake by operation, no argv indices; the missing cases.
+- [ ] S11.7 Row width measured once — one row helper that measures its own prefix.
+- [ ] S11.8 Keys dispatched by section — global keys, then one handler per section; per-section records.
+- [ ] S11.9 Read the plan once — plan text kept with the parsed plan; one repair record.
+
+**Acceptance**
+- [ ] Every confirmed finding in A, B, D and E is fixed or consciously dropped.
+- [ ] No behaviour change the user can see, except the two bug fixes.
+
 ### M7 — Dogfood and ship
 Used on itself until the user's test batches pass, then tagged and installable
 from the dotfiles.
 
 **Deliverables**
-- [~] S7.1 Dogfood on this repo — rounds 1–3 fixed; round 4 is the v2 plan.
+- [x] S7.1 Dogfood on this repo — four test rounds; the user: "All works!" (2026-10-11).
 - [x] S7.2 README + screenshots — install, keys, the grammar.
 - [x] S7.3 Record KNOWLEDGE findings — every platform surprise, dated.
 - [ ] S7.4 GitHub remote + tag v0.1 — once the user provides the remote.
 
 **Acceptance**
-- [ ] The user's test batch passes with no open bug.
+- [x] The user's test batch passes with no open bug.
 - [ ] `claude plugin install toc@claude-toc` works from the GitHub marketplace.
 
 ### M8 — Later

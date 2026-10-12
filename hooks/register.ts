@@ -366,9 +366,10 @@ async function installKeys($): Promise<string> {
 
 // ── keys & effects ──────────────────────────────────────────────────────
 
-async function handleKey($, key: Key, surface?: string) {
+// `before`: the state Preview was last loaded for, when the caller moved the
+// cursor itself first (a click).
+async function handleKey($, key: Key, surface?: string, before: UI = ui) {
   if (!data) return
-  const before = ui
   const r = press(ui, key, { data, repair, alloc: alloc(), previewCosts: previewCosts(preview, width), preview })
   ui = r.ui
   if (shownKey(before) !== shownKey(ui)) await loadPreview($)
@@ -818,7 +819,8 @@ function edgeMove(from: number, to: number): Key | null {
 
 async function onRow($, key: string) {
   if (!data) return
+  const before = ui
   ui = focusRow(ui, data, repair, key, alloc())
   lastFocus = key
-  await handleKey($, 'o')
+  await handleKey($, 'o', undefined, before)
 }

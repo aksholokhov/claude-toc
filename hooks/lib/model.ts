@@ -464,7 +464,7 @@ function pressIn(ui: UI, pressed: Key, c: Ctx): { ui: UI; effect: Effect } {
     if (row.kind === 'ms') return { ui: { ...ui, fold: { ...ui.fold, [row.id]: !isFolded(ui, c.data.plan!, row.id) } }, effect: none }
     if (row.kind === 'step' || row.kind === 'unattr') {
       const id = row.kind === 'step' ? row.step.id : UNATTRIBUTED
-      return { ui: { ...followStep(ui, row), step: id, sec: ART, collapsed: ui.collapsed.filter((s) => s !== ART) }, effect: none }
+      return { ui: { ...followStep(ui, row), step: id, sec: ART, zoom: ui.zoom !== null ? ART : null, collapsed: ui.collapsed.filter((s) => s !== ART) }, effect: none }
     }
     if (row.kind === 'repair') return { ui, effect: row.phase === 'ask' ? { kind: 'repair', yes: true } : none }
     // A past commit is read as its change, not as today's file.
