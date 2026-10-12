@@ -633,3 +633,14 @@ test('o on a step while Plan is zoomed reveals Artifacts instead of a hidden sec
   expect(text).toMatch(/3━┥ Artifacts · S1\.2/)
   expect(text).toMatch(/src\/a\.ts/) // drawn, not an empty zoomed-away section
 })
+
+test('moving onto a file of a commit moves Preview to that file', async ($, on) => {
+  host(on, baseFiles(), { git: true })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'key:3' })
+  for (const k of ['j', 'j', 'j', 'l', 'j', 'j']) await ui.press({ key: 'key:' + k }) // d1741b3's second file
+  const text = (await drawn(ui)).join('\n')
+  expect(text).toMatch(/Preview · d1741b3 one\.txt/)
+  expect(text.split('Preview ·')[1]).toMatch(/^[^\n]*\n▌ one\.txt/) // the page starts at that file's header
+})

@@ -378,10 +378,12 @@ async function handleKey($, key: Key, surface?: string, before: UI = ui) {
   syncRing($)
 }
 
-// What Preview shows for this state; a change means reload it.
+// What Preview shows for this state; a change means reload it. A commit and
+// its files share one fetched diff (targetKey), but each file is its own
+// position in it, so the file is part of what's shown.
 function shownKey(u: UI): string {
   const t = data ? previewTarget(u, data) : null
-  return t ? targetKey(t) : ''
+  return !t ? '' : t.kind === 'cfile' ? targetKey(t) + ':' + t.path : targetKey(t)
 }
 
 // Keep the focus ring on the cursor row after our own moves.
