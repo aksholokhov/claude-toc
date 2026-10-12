@@ -23,8 +23,47 @@ const PANE = {
 
 type Files = Record<string, string>
 
+// A tiny tmux: Claude runs in %5 of window @1, panes toc splits off get
+// %9, %10, …; no nvim server is running. It answers by subcommand, the way
+// tmux does, and records every call.
+function fakeTmux() {
+  const panes = new Set(['%5'])
+  const calls: string[][] = []
+  let next = 9
+  const ok = (stdout = '') => ({ value: { exitCode: 0, stdout, stderr: '' } })
+  const run = (argv: string[]) => {
+    calls.push(argv)
+    if (argv[0] === 'nvim') return { value: { exitCode: 1, stdout: '', stderr: 'no server' } }
+    const target = argv.includes('-t') ? argv[argv.indexOf('-t') + 1] : '%5'
+    switch (argv[1]) {
+      case 'display-message': // formats a pane's fields; a gone pane answers empty, exit 0
+        return ok(panes.has(target) ? argv.at(-1)!.replace('#{pane_id}', target).replace('#{window_id}', '@1').replace('#{pane_active}', '1') + '\n' : '')
+      case 'list-panes':
+        return ok([...panes].join('\n') + '\n')
+      case 'split-window': {
+        const pane = '%' + next++
+        panes.add(pane)
+        return ok(pane + '\n')
+      }
+      default: // respawn-pane, select-pane
+        return ok()
+    }
+  }
+  // What a split-window meant: where the pane went, what it runs.
+  const splits = () => calls.filter((a) => a[1] === 'split-window').map((a) => {
+    const at = (flag: string) => a[a.indexOf(flag) + 1]
+    return {
+      where: a.includes('-h') ? 'left of ' + at('-t') : (a.includes('-b') ? 'above ' : 'below ') + at('-t'),
+      env: a.filter((_, i) => a[i - 1] === '-e'),
+      cmd: a.slice(a.indexOf('#{pane_id}') + 1).join(' '),
+    }
+  })
+  const respawns = () => calls.filter((a) => a[1] === 'respawn-pane').map((a) => a.slice(a.lastIndexOf('-e') + 2).join(' '))
+  return { run, panes, calls, splits, respawns }
+}
+
 // Stand in for Claude Code: a tiny in-memory file system, git, store and env.
-function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; status?: () => string; tmux?: string[][]; panes?: () => string } = {}) {
+function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; status?: () => string; tmux?: ReturnType<typeof fakeTmux> } = {}) {
   const clock = mock.clock(on, { now: 1_000_000 })
   const store = new Map<string, unknown>([['bases', { [BASE]: BASE }]])
   const writes: Record<string, string> = {}
@@ -57,17 +96,7 @@ function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; sta
   })
   on('process.run', ($, e) => {
     const argv = e.argv.join(' ')
-    if (opts.tmux && (e.argv[0] === 'tmux' || e.argv[0] === 'nvim')) {
-      opts.tmux.push(e.argv)
-      if (argv === 'tmux display-message -p #{pane_id}') return { value: { exitCode: 0, stdout: '%5\n', stderr: '' } }
-      if (argv.startsWith('tmux display-message -p -t %5 #{pane_id} #{pane_active}')) return { value: { exitCode: 0, stdout: '%5 1\n', stderr: '' } }
-      if (argv.startsWith('tmux display-message -p -t %5 ')) return { value: { exitCode: 0, stdout: '@1 200\n', stderr: '' } }
-      if (argv.startsWith('tmux display-message -p -t %9 ')) return { value: { exitCode: 0, stdout: '%9 @1\n', stderr: '' } }
-      if (e.argv[1] === 'list-panes' && opts.panes) return { value: { exitCode: 0, stdout: opts.panes(), stderr: '' } }
-      if (e.argv[1] === 'split-window') return { value: { exitCode: 0, stdout: '%9\n', stderr: '' } }
-      if (e.argv[1] === 'respawn-pane' || e.argv[1] === 'select-pane') return { value: { exitCode: 0, stdout: '', stderr: '' } }
-      return { value: { exitCode: 1, stdout: '', stderr: 'no server' } }
-    }
+    if (opts.tmux && (e.argv[0] === 'tmux' || e.argv[0] === 'nvim')) return opts.tmux.run(e.argv)
     if (!opts.git) return { value: { exitCode: 128, stdout: '', stderr: 'not a git repository' } }
     if (argv.includes('rev-parse --show-toplevel')) return { value: { exitCode: 0, stdout: BASE + '\n', stderr: '' } }
     if (argv.includes('rev-parse --git-path')) return { value: { exitCode: 0, stdout: '.git/info/exclude\n', stderr: '' } }
@@ -466,49 +495,65 @@ test('the band: a click closes a shown pane; the chord has its own button', asyn
 })
 
 test('Enter on a commit shows it in the pager beside Claude; v opens lazygit there', async ($, on) => {
-  const tmux: string[][] = []
+  const tmux = fakeTmux()
   host(on, baseFiles(), { git: true, tmux })
   await start($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'key:3' })
   await ui.press({ key: 'key:j' }) // the step's newest commit
   await ui.press({ key: 'key:o' })
-  const split = tmux.find((a) => a[1] === 'split-window')!
-  expect(split.slice(0, 7)).toEqual(['tmux', 'split-window', '-h', '-b', '-l', '50%', '-t'])
-  expect(split).toContain('LESS=-R')
-  expect(split).toContain('DELTA_PAGER=less -R')
-  expect(split.join(' ')).toMatch(/ -P -F #\{pane_id\} git -C \/work\/proj show --stat --patch -M 06a4746\w+$/)
+  const [split] = tmux.splits()
+  expect(split.where).toBe('left of %5')
+  expect(split.cmd).toMatch(/^git -C \/work\/proj show --stat --patch -M 06a4746\w+$/)
+  expect(split.env).toEqual(expect.arrayContaining(['LESS=-R', 'DELTA_PAGER=less -R'])) // a short diff must not close the pane
   await ui.press({ key: 'key:v' }) // the viewer pane is reused
-  const again = tmux.filter((a) => a[1] === 'respawn-pane')
-  expect(again.length).toBe(1)
-  expect(again[0].slice(-4)).toEqual(['lazygit', '-p', BASE, 'log'])
-  expect(tmux.filter((a) => a[1] === 'split-window').length).toBe(1)
+  expect(tmux.splits().length).toBe(1)
+  expect(tmux.respawns()).toEqual(['lazygit -p /work/proj log'])
 })
 
 test('l unfolds a commit; Enter on one of its files shows just that file of it', async ($, on) => {
-  const tmux: string[][] = []
+  const tmux = fakeTmux()
   host(on, baseFiles(), { git: true, tmux })
   await start($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'key:3' })
   for (const k of ['j', 'j', 'j', 'l', 'j']) await ui.press({ key: 'key:' + k })
   await ui.press({ key: 'key:o' })
-  const split = tmux.find((a) => a[1] === 'split-window')!
-  expect(split.join(' ')).toMatch(/git -C \/work\/proj show -M d1741b3\w+ -- dir\/old\.txt$/)
+  expect(tmux.splits()[0].cmd).toMatch(/^git -C \/work\/proj show -M d1741b3\w+ -- dir\/old\.txt$/)
 })
 
-test('a viewer or nvim pane that was closed is not split beside', async ($, on) => {
-  const tmux: string[][] = []
-  const { store } = host(on, baseFiles(), { git: true, tmux })
+test('nvim and the viewer share the left column; a closed one is not split beside', async ($, on) => {
+  const tmux = fakeTmux()
+  host(on, baseFiles(), { git: true, tmux })
   await start($)
-  await store.set('nvimPanes', { '@1': '%45' }) // gone: display-message answers empty
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'key:1' })
+  await ui.press({ key: 'key:j' })
+  await ui.press({ key: 'key:o' }) // SPEC.md in nvim: %9, left of Claude
   await ui.press({ key: 'key:3' })
   await ui.press({ key: 'key:j' })
+  await ui.press({ key: 'key:d' }) // the diff: %10, below nvim
+  expect(tmux.splits().map((s) => s.where)).toEqual(['left of %5', 'below %9'])
+  tmux.panes.delete('%9')
+  tmux.panes.delete('%10') // both quit
   await ui.press({ key: 'key:d' })
-  const split = tmux.find((a) => a[1] === 'split-window')!
-  expect(split.slice(2, 7)).toEqual(['-h', '-b', '-l', '50%', '-t'])
-  expect(split[7]).toBe('%5')
+  expect(tmux.splits()[2].where).toBe('left of %5')
+})
+
+test('outside tmux, opening a file copies its path instead', async ($, on) => {
+  const h = host(on, baseFiles())
+  const copied: string[] = []
+  on('ui.copy', ($, e) => {
+    copied.push(e.text)
+    return { value: undefined }
+  })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'key:1' })
+  await ui.press({ key: 'key:j' })
+  await ui.press({ key: 'key:o' })
+  expect(copied).toEqual([BASE + '/SPEC.md'])
+  expect(h.toasts).toEqual([expect.stringMatching(/not in tmux — copied/)])
 })
 
 test('l drills in: step → Artifacts → commit → Preview; h backs out', async ($, on) => {
@@ -532,21 +577,18 @@ test('l drills in: step → Artifacts → commit → Preview; h backs out', asyn
 })
 
 test('p opens DEV_PLAN.md at the step', async ($, on) => {
-  const tmux: string[][] = []
+  const tmux = fakeTmux()
   host(on, baseFiles(), { git: true, tmux })
   await start($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   for (const k of ['2', 'j', 'j', 'j']) await ui.press({ key: 'key:' + k })
   await ui.press({ key: 'key:p' })
-  const split = tmux.find((a) => a[1] === 'split-window')!
-  expect(split.slice(-6, -4)).toEqual(['nvim', '--listen'])
-  expect(split.slice(-3)).toEqual(['+4', '+normal! zt', BASE + '/DEV_PLAN.md'])
+  expect(tmux.splits()[0].cmd).toMatch(/^nvim --listen \S+ \+4 \+normal! zt \/work\/proj\/DEV_PLAN\.md$/)
 })
 
 test('quitting the viewer hands the keys back to toc, not the prompt', async ($, on) => {
-  const tmux: string[][] = []
-  let panes = '%5\n%9\n'
-  const h = host(on, baseFiles(), { git: true, tmux, panes: () => panes })
+  const tmux = fakeTmux()
+  const h = host(on, baseFiles(), { git: true, tmux })
   const opened = h.opened
   await start($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -556,7 +598,7 @@ test('quitting the viewer hands the keys back to toc, not the prompt', async ($,
   opened.length = 0
   await h.clock.advance(500)
   expect(opened.length).toBe(0) // still open
-  panes = '%5\n' // q in the pager: the pane is gone
+  tmux.panes.delete('%9') // q in the pager: the pane is gone
   await h.clock.advance(500)
   expect(opened).toEqual([expect.objectContaining({ id: 'toc', focus: true })])
 })

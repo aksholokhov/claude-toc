@@ -80,16 +80,20 @@ export function viewerEnv(mode: 'dark' | 'light', lazygitConfig: string | null):
   return env.flatMap((kv) => ['-e', kv])
 }
 
-// Open `cmd` in the left column: below/above the other left pane when it is
-// there (`beside`), else as the left half of Claude's pane.
-export function leftSplitArgs(claudePane: string, beside: string | null, above: boolean, cwd: string, env: string[], cmd: string[]): string[] {
+// What runs in a left-column pane, and where.
+export type Spawn = { cwd: string; env: string[]; cmd: string[] }
+
+// Open a pane in the left column: above (nvim) or below (the viewer) the
+// other left pane when there is one (`beside`), else as the left half of
+// Claude's pane.
+export function leftSplitArgs(claudePane: string, beside: string | null, above: boolean, s: Spawn): string[] {
   const where = beside
     ? ['-v', ...(above ? ['-b'] : []), '-l', '50%', '-t', beside]
     : ['-h', '-b', '-l', '50%', '-t', claudePane]
-  return ['tmux', 'split-window', ...where, '-c', cwd, ...env, '-P', '-F', '#{pane_id}', ...cmd]
+  return ['tmux', 'split-window', ...where, '-c', s.cwd, ...s.env, '-P', '-F', '#{pane_id}', ...s.cmd]
 }
 
 // Reuse the viewer pane: replace what runs in it.
-export function respawnArgs(pane: string, cwd: string, env: string[], cmd: string[]): string[] {
-  return ['tmux', 'respawn-pane', '-k', '-t', pane, '-c', cwd, ...env, ...cmd]
+export function respawnArgs(pane: string, s: Spawn): string[] {
+  return ['tmux', 'respawn-pane', '-k', '-t', pane, '-c', s.cwd, ...s.env, ...s.cmd]
 }

@@ -7,7 +7,7 @@ import {
   aliveArgs, diffViewArgs, isPaneAlive, lazygitArgs, nvimArgs, leftSplitArgs, paneAliveArgs, parseWindowId, remoteTabArgs, respawnArgs, selectPaneArgs, socketPath,
   tmuxInfoArgs, viewerEnv,
 } from './lib/editor.ts'
-import type { ViewTarget } from './lib/editor.ts'
+import type { Spawn, ViewTarget } from './lib/editor.ts'
 import {
   changedBetween, commitsByStep, diffArgs, fileState, logArgs, parseLog, parseStatus, relativeTo, rootArgs, showArgs, statusArgs,
   supportsTrailer, withTrailer,
@@ -433,15 +433,43 @@ async function claudeWindow($, fallback: () => Promise<void>) {
   return { pane, windowId }
 }
 
-// A pane we started in this window, if it's still there.
-async function livePane($, slot: 'nvimPanes' | 'viewerPanes', windowId: string): Promise<string | null> {
-  const known = (((await $.store.get(slot)) ?? {}) as Record<string, string>)[windowId]
-  return known && isPaneAlive((await run($, paneAliveArgs(known))).out, known, windowId) ? known : null
+// The left column of a tmux window: the nvim and viewer panes toc opened
+// there, one record per window in $.store, read back only while alive.
+type LeftKind = 'nvim' | 'viewer'
+type Column = { nvim?: string; viewer?: string }
+const COLUMNS_KEY = 'leftColumns'
+
+async function columnOf($, windowId: string): Promise<Column> {
+  const kept = (((await $.store.get(COLUMNS_KEY)) ?? {}) as Record<string, Column>)[windowId] ?? {}
+  const alive = async (pane?: string) => (pane && isPaneAlive((await run($, paneAliveArgs(pane))).out, pane, windowId) ? pane : undefined)
+  return { nvim: await alive(kept.nvim), viewer: await alive(kept.viewer) }
 }
 
-async function keepPane($, slot: 'nvimPanes' | 'viewerPanes', windowId: string, pane: string) {
-  const panes = ((await $.store.get(slot)) ?? {}) as Record<string, string>
-  await $.store.set(slot, { ...panes, [windowId]: pane })
+async function keepColumn($, windowId: string, column: Column) {
+  const all = ((await $.store.get(COLUMNS_KEY)) ?? {}) as Record<string, Column>
+  await $.store.set(COLUMNS_KEY, { ...all, [windowId]: column })
+}
+
+// Open `kind` in the left column: nvim above the viewer, the viewer below
+// nvim, either as the left half of Claude's pane when it is alone.
+async function openLeft($, w: { pane: string; windowId: string }, kind: LeftKind, spawn: Spawn): Promise<boolean> {
+  const column = await columnOf($, w.windowId)
+  const other = kind === 'nvim' ? column.viewer : column.nvim
+  const above = kind === 'nvim'
+  let split = await run($, leftSplitArgs(w.pane, other ?? null, above, spawn))
+  if (!split.ok && other) split = await run($, leftSplitArgs(w.pane, null, above, spawn)) // it died just now
+  if (!split.ok) {
+    $.ui.toast('toc: tmux split failed: ' + split.err.trim().slice(0, 80))
+    return false
+  }
+  const pane = split.out.trim()
+  await keepColumn($, w.windowId, { ...column, [kind]: pane })
+  watchPane($, pane, w.pane)
+  return true
+}
+
+function workDir(): string {
+  return root ?? base ?? '.'
 }
 
 async function openInEditor($, path: string, surface?: string, line?: number) {
@@ -455,21 +483,11 @@ async function openInEditor($, path: string, surface?: string, line?: number) {
   if ((await run($, aliveArgs(sock))).ok) {
     const r = await run($, remoteTabArgs(sock, path, line))
     if (!r.ok) $.ui.toast('toc: nvim refused ' + path)
-    const known = await livePane($, 'nvimPanes', w.windowId)
-    if (known) await run($, selectPaneArgs(known))
+    const { nvim } = await columnOf($, w.windowId)
+    if (nvim) await run($, selectPaneArgs(nvim))
     return
   }
-  // nvim goes above the viewer when one is open, else left of Claude.
-  const viewer = await livePane($, 'viewerPanes', w.windowId)
-  const cmd = nvimArgs(sock, path, line)
-  let split = await run($, leftSplitArgs(w.pane, viewer, true, root ?? base ?? '.', [], cmd))
-  if (!split.ok && viewer) split = await run($, leftSplitArgs(w.pane, null, true, root ?? base ?? '.', [], cmd))
-  if (!split.ok) {
-    $.ui.toast('toc: tmux split failed: ' + split.err.trim().slice(0, 80))
-    return
-  }
-  await keepPane($, 'nvimPanes', w.windowId, split.out.trim())
-  watchPane($, split.out.trim(), w.pane)
+  await openLeft($, w, 'nvim', { cwd: workDir(), env: [], cmd: nvimArgs(sock, path, line) })
 }
 
 // Panes toc started (nvim, the viewer), watched while they live: when one
@@ -508,37 +526,27 @@ async function checkWatched($) {
 // The theme for delta and lazygit, as the person's shell would set it.
 async function viewerEnvFor($): Promise<string[]> {
   const mode = parseMode(home ? await readText($, home + '/.config/theme/mode') : null) ?? 'dark'
-  const cfg = ((await $.env.get('XDG_CONFIG_HOME')) || (home ? home + '/.config' : '')) + '/lazygit'
-  const both = cfg !== '/lazygit' && (await $.fs.exists(cfg + '/config.yml')) && (await $.fs.exists(cfg + '/theme-' + mode + '.yml'))
-  return viewerEnv(mode, both ? cfg + '/config.yml,' + cfg + '/theme-' + mode + '.yml' : null)
+  const config = (await $.env.get('XDG_CONFIG_HOME')) || (home ? home + '/.config' : '')
+  if (!config) return viewerEnv(mode, null)
+  const dir = config + '/lazygit'
+  const both = (await $.fs.exists(dir + '/config.yml')) && (await $.fs.exists(dir + '/theme-' + mode + '.yml'))
+  return viewerEnv(mode, both ? dir + '/config.yml,' + dir + '/theme-' + mode + '.yml' : null)
 }
 
 // Run cmd in the viewer pane: reuse it, else open it in the left column.
-async function inViewer($, cmd: string[], what: string) {
+async function inViewer($, cmd: string[]) {
   const w = await claudeWindow($, async () => {
     $.ui.toast('toc: not in tmux — run: ' + cmd.join(' ').slice(0, 120))
   })
   if (!w) return
-  const cwd = root ?? base ?? '.'
-  const env = await viewerEnvFor($)
-  const viewer = await livePane($, 'viewerPanes', w.windowId)
-  if (viewer) {
-    const r = await run($, respawnArgs(viewer, cwd, env, cmd))
-    if (r.ok) {
-      await run($, selectPaneArgs(viewer))
-      watchPane($, viewer, w.pane)
-      return
-    }
-  }
-  const nvim = await livePane($, 'nvimPanes', w.windowId)
-  let split = await run($, leftSplitArgs(w.pane, nvim, false, cwd, env, cmd))
-  if (!split.ok && nvim) split = await run($, leftSplitArgs(w.pane, null, false, cwd, env, cmd))
-  if (!split.ok) {
-    $.ui.toast('toc: could not open ' + what + ': ' + split.err.trim().slice(0, 80))
+  const spawn = { cwd: workDir(), env: await viewerEnvFor($), cmd }
+  const { viewer } = await columnOf($, w.windowId)
+  if (viewer && (await run($, respawnArgs(viewer, spawn))).ok) {
+    await run($, selectPaneArgs(viewer))
+    watchPane($, viewer, w.pane)
     return
   }
-  await keepPane($, 'viewerPanes', w.windowId, split.out.trim())
-  watchPane($, split.out.trim(), w.pane)
+  await openLeft($, w, 'viewer', spawn)
 }
 
 // A commit, a file in a commit, or a working-tree change, in the pager.
@@ -550,15 +558,12 @@ async function viewDiff($, t: Target, surface?: string) {
     t.kind === 'commit' ? { kind: 'commit', sha: t.sha }
       : t.kind === 'cfile' ? { kind: 'cfile', sha: t.sha, path: t.path }
         : { kind: 'file', path: t.path, untracked: t.state === 'A' } // new: diff it against nothing
-  return inViewer($, diffViewArgs(r, vt), 'the diff')
+  return inViewer($, diffViewArgs(r, vt))
 }
 
 async function history($, path: string | null) {
-  if (!root) {
-    $.ui.toast('toc: not a git repository')
-    return
-  }
-  return inViewer($, lazygitArgs(root, path === null ? null : relativeTo(root, path)), 'lazygit')
+  if (!root) return $.ui.toast('toc: not a git repository')
+  return inViewer($, lazygitArgs(root, path === null ? null : relativeTo(root, path)))
 }
 
 // ── repair (SPEC §7.6) ──────────────────────────────────────────────────
