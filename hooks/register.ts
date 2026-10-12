@@ -267,6 +267,10 @@ async function snapshot($): Promise<Snapshot | null> {
 
 // ── activation & scaffolding ────────────────────────────────────────────
 
+// ui.log already prefixes the plugin name; activate's text is also read
+// where it doesn't (/project, the tool result), so drop ours only here.
+const headline = (msg: string) => msg.split('\n')[0].replace(/^toc: /, '')
+
 async function activate($, dir: string, opts: { create: boolean }): Promise<string> {
   const cwd = await $.session.cwd()
   const target = abs(cwd, dir || '.').replace(/\/\.$/, '').replace(/\/$/, '') || '/'
@@ -336,7 +340,7 @@ async function togglePane($) {
       $.ui.toast('toc: no DEV_PLAN.md here; run /project <dir>')
       return
     }
-    $.ui.log(msg.split('\n')[0])
+    $.ui.log(headline(msg))
   }
   await openPane($, true)
 }
@@ -405,7 +409,7 @@ async function effect($, e: Effect, surface?: string) {
   if (e.kind === 'close') return $.ui.close({ id: PANE })
   if (e.kind === 'scaffold') {
     const msg = await activate($, base ?? '.', { create: true })
-    $.ui.log(msg.split('\n')[0])
+    $.ui.log(headline(msg))
   }
 }
 

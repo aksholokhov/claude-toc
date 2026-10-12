@@ -240,7 +240,9 @@ from the dotfiles.
 
 **Acceptance**
 - [x] The user's test batch passes with no open bug.
-- [ ] `claude plugin install toc@claude-toc` works from the GitHub marketplace.
+- [x] `claude plugin install toc@claude-toc` works from the GitHub marketplace
+  (2026-10-11: added and installed on the dev box; a fresh session lists /toc,
+  /project and /toc:dev-plan, and the sidebar and Ctrl+X T work).
 
 ### M8 — Later
 **Deliverables**
