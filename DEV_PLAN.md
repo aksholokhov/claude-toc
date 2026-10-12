@@ -219,14 +219,14 @@ v0.1; the larger restructures stay as later steps.
 - [x] S11.3 Fix Claude-facing text — at most one [~], no grammar per turn, step size, "demonstrated".
 - [x] S11.4 One reveal helper — the zoom/unfold rule written once, not five times.
 - [x] S11.5 One left-column module — nvim and viewer as one record per window, one open routine.
-- [~] S11.6 Tests at the interface — tmux fake by operation, no argv indices; the missing cases.
+- [x] S11.6 Tests at the interface — tmux fake by operation, no argv indices; the missing cases.
 - [ ] S11.7 Row width measured once — one row helper that measures its own prefix.
 - [ ] S11.8 Keys dispatched by section — global keys, then one handler per section; per-section records.
 - [ ] S11.9 Read the plan once — plan text kept with the parsed plan; one repair record.
 
 **Acceptance**
-- [ ] Every confirmed finding in A, B, D and E is fixed or consciously dropped.
-- [ ] No behaviour change the user can see, except the two bug fixes.
+- [x] Every confirmed finding in A, B, D and E is fixed or consciously dropped.
+- [x] No behaviour change the user can see, except the two bug fixes.
 
 ### M7 — Dogfood and ship
 Used on itself until the user's test batches pass, then tagged and installable

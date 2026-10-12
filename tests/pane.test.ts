@@ -67,7 +67,6 @@ function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; sta
   const clock = mock.clock(on, { now: 1_000_000 })
   const store = new Map<string, unknown>([['bases', { [BASE]: BASE }]])
   const writes: Record<string, string> = {}
-  const focused: string[] = []
   const toasts: string[] = []
   const spawned: unknown[] = []
   on('env.get', ($, e) => ({ value: { HOME: '/home/u' }[e.name] }))
@@ -112,17 +111,14 @@ function host(on, files: Files, opts: { git?: boolean; mtime?: () => number; sta
     return { value: { isPlaced: true } }
   })
   on('ui.panes', () => ({ value: [{ id: 'toc', title: 'toc', isShown: true, isFocused: true, isPlaced: true }] }))
-  on('ui.focus', ($, e) => {
-    focused.push(e.key ?? e.element ?? '')
-    return {}
-  })
+  on('ui.focus', () => ({}))
   on('ui.toast', ($, e) => {
     toasts.push(e.text)
     return { value: undefined }
   })
   on('ui.log', () => ({ value: undefined }))
   on('session.start', () => ({ cwd: BASE }))
-  return { clock, store, writes, focused, toasts, spawned, opened }
+  return { clock, store, writes, toasts, spawned, opened }
 }
 
 function baseFiles(plan = PLAN_TEXT): Files {
@@ -154,25 +150,24 @@ async function start($) {
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: BASE })
 }
 
-test('draws the four sections from DEV_PLAN.md', async ($, on) => {
+test('draws every section from DEV_PLAN.md', async ($, on) => {
   host(on, baseFiles())
   await start($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const rows = await drawn(ui)
   const text = rows.join('\n')
-  expect(text).toMatch(/Context/)
   expect(text).toMatch(/SPEC\.md/)
   expect(text).toMatch(/SCRATCHPAD\.md\s+missing/)
   expect(text).toMatch(/Plan .* 1\/3/)
   expect(text).toMatch(/◐ S1\.2 Doing it/)
   expect(text).toMatch(/✗ S1\.3 Dropped/)
   expect(text).toMatch(/Artifacts · S1\.2/)
-  expect(text).toMatch(/Preview/)
-  expect(text).toMatch(/zoom/)
+  expect(text).toMatch(/Preview · S1\.2 brief/) // nothing selected: the step in progress
+  expect(text).toMatch(/5▸┤ Keys/)
 })
 
 test('j/k move the cursor and Artifacts follows the step under it', async ($, on) => {
-  const h = host(on, baseFiles())
+  host(on, baseFiles())
   await start($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'key:j' }) // M1
@@ -183,8 +178,6 @@ test('j/k move the cursor and Artifacts follows the step under it', async ($, on
   await ui.press({ key: 'key:k' })
   text = (await drawn(ui)).join('\n')
   expect(text).toMatch(/Artifacts · S1\.1/)
-  // The focus ring itself follows via $.ui.focus, which the test kit can't
-  // answer ("no implementation for ui.focus"); verified live instead.
 })
 
 test('h folds a milestone, l unfolds it; z zooms; collapsed sections keep a header', async ($, on) => {
@@ -217,7 +210,7 @@ test('h folds a milestone, l unfolds it; z zooms; collapsed sections keep a head
 })
 
 test('Alt keys: next section and paging through a commit diff in Preview', async ($, on) => {
-  host(on, baseFiles(PLAN_TEXT.replace('- [x] S1.1', '- [x] S1.1').replace('S1.2 Doing it', 'S1.2 Doing it')), { git: true })
+  host(on, baseFiles(), { git: true })
   await start($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   let text = (await drawn(ui)).join('\n')
@@ -233,7 +226,7 @@ test('Alt keys: next section and paging through a commit diff in Preview', async
   await ui.press({ key: 'act:pageup' })
   await ui.press({ key: 'act:prevsec' })
   text = (await drawn(ui)).join('\n')
-  expect(text).toMatch(/Artifacts/)
+  expect(text).toMatch(/3━┥ Artifacts/)
 })
 
 test('commits fold to their files with h/l', async ($, on) => {
@@ -301,6 +294,9 @@ test('PostToolUse ignores files outside the project, inside .toc, and the knowle
   await $.classic.PostToolUse({ hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: BASE + '/DEV_PLAN.md' }, cwd: BASE })
   await $.classic.PostToolUse({ hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: BASE + '/SPEC.md' }, cwd: BASE })
   expect(h.writes[BASE + '/.toc/ledger.jsonl']).toBeUndefined()
+  // …while the same hook does record a project file (so the above is real).
+  await $.classic.PostToolUse({ hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: BASE + '/src/b.ts' }, cwd: BASE })
+  expect(h.writes[BASE + '/.toc/ledger.jsonl'].trim().split('\n').pop()).toMatch(/src\/b\.ts/)
 })
 
 test('git commit in Bash gets --trailer for the in-progress step; Bash-made files reach the ledger', async ($, on) => {
@@ -378,6 +374,15 @@ test('prompt.context adds the rules block only while active', async ($, on) => {
   await start($)
   const r = await $.prompt.context({ blocks: [] })
   expect(r.blocks.map((b) => b.name)).toEqual(['toc'])
+})
+
+test('prompt.context adds nothing when toc is not active here', async ($, on) => {
+  const h = host(on, baseFiles())
+  h.store.set('bases', {})
+  on('prompt.context', ($, e) => ({ blocks: e.blocks }))
+  await start($)
+  const r = await $.prompt.context({ blocks: [] })
+  expect(r.blocks).toEqual([])
 })
 
 test('/toc keys merges keybindings without clobbering the user', async ($, on) => {

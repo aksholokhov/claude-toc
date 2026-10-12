@@ -1,4 +1,4 @@
-// Real git output captured from a scratch repo (see tests/git.test.ts).
+// Real git output captured from a scratch repo with Plan-Step trailers.
 export const LOG = "\u001e06a47461ca699090d0b332059bee76686dd0f3c5\u001f06a4746\u001f1791687220\u001fRename\u001fS1.2\n\n0\t0\tdir/{old.txt => new.txt}\n\u001ed1741b3fb17b7ed0e688de7d8b701c685b51c0f5\u001fd1741b3\u001f1791687220\u001fSecond change\u001fS1.2\n\n1\t0\tdir/old.txt\n2\t1\tone.txt\n\u001e088e97ff409a053a90c46f45b186844b22080fd4\u001f088e97f\u001f1791687220\u001fFirst\u001fS1.1\n\n3\t0\tone.txt\n"
 export const STATUS = " M one.txt\u0000?? untracked.txt\u0000"
 export const SHOW = "diff --git a/dir/old.txt b/dir/old.txt\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/dir/old.txt\n@@ -0,0 +1 @@\n+x\ndiff --git a/one.txt b/one.txt\nindex de98044..a7bc997 100644\n--- a/one.txt\n+++ b/one.txt\n@@ -1,3 +1,4 @@\n a\n-b\n+B\n c\n+d\n"

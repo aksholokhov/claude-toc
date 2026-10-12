@@ -78,10 +78,11 @@ test('orphan trailers warn', () => {
   expect(orphanTrailers(plan, ['S1.1', 'S7.7']).map((i) => i.message)).toEqual(['commits name S7.7, which the plan no longer has'])
 })
 
-test('parses the real DEV_PLAN.md of this repo without errors', () => {
+test('parses a snapshot of this repo\'s own v2 DEV_PLAN.md cleanly', () => {
   const plan = parsePlan(devPlan)
-  expect(plan.issues.filter((i) => i.severity === 'error')).toEqual([])
-  expect(plan.milestones.length).toBe(10)
+  expect(plan.issues).toEqual([])
+  expect(plan.milestones.map((m) => m.id)).toEqual(['M0', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M9', 'M10', 'M11', 'M7', 'M8'])
+  expect(plan.milestones.every((m) => m.steps.length > 0)).toBe(true)
 })
 
 const V2 = `---
@@ -134,7 +135,6 @@ test('v2: milestones by heading, labels, acceptance counted, prose ignored', () 
   expect([m1.steps[0].line, m1.steps[0].end]).toEqual([17, 19])
   expect(m1.steps[2].id).toBe('S1.3') // a deeper heading doesn't end the milestone
   expect(m1.acceptance).toEqual({ done: 1, total: 2 })
-  expect(isComplete(m1)).toBe(false)
   expect([m1.line, m1.end]).toEqual([13, 30])
   expect([m2.line, m2.end]).toEqual([32, 33])
 })
